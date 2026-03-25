@@ -1,6 +1,7 @@
 mod batch;
 mod cluster;
 mod config;
+mod epoch;
 mod liveness;
 mod merkle;
 mod mev_searcher_info;
@@ -14,6 +15,7 @@ mod version;
 pub use batch::*;
 pub use cluster::*;
 pub use config::*;
+pub use epoch::*;
 pub use liveness::*;
 pub use merkle::*;
 pub use mev_searcher_info::*;

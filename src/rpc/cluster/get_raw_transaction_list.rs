@@ -227,19 +227,31 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         mut_cluster_metadata.is_leader = is_next_leader;
         mut_cluster_metadata.leader_tx_orderer_rpc_info = Some(leader_tx_orderer_rpc_info.clone());
 
-        let signer = context.get_signer(rollup.platform).await?;
-        let current_tx_orderer_address = signer.address();
+        let old_epoch = mut_cluster_metadata.epoch;
+
+        // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
+        if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
+            tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
+            mut_cluster_metadata.epoch_leader_map.insert(old_epoch, self.leader_change_message.current_leader_tx_orderer_address.clone());
+        }
+        mut_cluster_metadata.epoch = old_epoch + 1;
+
+        let new_epoch = mut_cluster_metadata.epoch;
+
+        // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
+        mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
         sync_leader_tx_orderer(
             context.clone(),
             cluster,
-            current_tx_orderer_address,
             self.leader_change_message.clone(),
             self.rollup_signature,
             mut_rollup_metadata.batch_number,
             mut_rollup_metadata.transaction_order,
             mut_rollup_metadata.provided_batch_number,
             mut_rollup_metadata.provided_transaction_order,
+            old_epoch,
+            new_epoch,
         )
         .await;
 
@@ -329,13 +341,14 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 pub async fn sync_leader_tx_orderer(
     context: AppState,
     cluster: Cluster,
-    current_tx_orderer_address: &Address,
     leader_change_message: LeaderChangeMessage,
     rollup_signature: Signature,
     batch_number: u64,
     transaction_order: u64,
     provided_batch_number: u64,
     provided_transaction_order: i64,
+    old_epoch: u64, 
+    new_epoch: u64, 
 ) {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
@@ -358,15 +371,19 @@ pub async fn sync_leader_tx_orderer(
             .collect();
 
         let parameter = SyncLeaderTxOrderer {
-            leader_change_message,
-            rollup_signature,
-            batch_number,
-            transaction_order,
-            provided_batch_number,
-            provided_transaction_order,
+            leader_change_message:      leader_change_message.clone(),
+            rollup_signature:           rollup_signature,
+            batch_number:               batch_number,
+            transaction_order:          transaction_order,
+            provided_batch_number:      provided_batch_number,
+            provided_transaction_order: provided_transaction_order,
+            old_epoch:                  old_epoch, 
+            new_epoch:                  new_epoch, 
         };
 
-        if next_leader_tx_orderer_rpc_info.tx_orderer_address != current_tx_orderer_address {
+        let current_leader_tx_orderer_address = leader_change_message.current_leader_tx_orderer_address.clone();
+
+        if next_leader_tx_orderer_rpc_info.tx_orderer_address != current_leader_tx_orderer_address {
             // Directly request the next leader tx_orderer to sync
             let start_sync_leader_tx_order_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -428,7 +445,7 @@ fn extract_raw_transactions(batch: Batch, start_transaction_order: u64) -> Vec<S
         .filter_map(|(i, transaction)| {
             if (i as u64) >= start_transaction_order {
                 Some(match transaction {
-                    RawTransaction::Eth(EthRawTransaction(data)) => data,
+                    RawTransaction::Eth(eth) => eth.raw_transaction,
                     RawTransaction::EthBundle(EthRawBundleTransaction(data)) => data,
                 })
             } else {
@@ -474,7 +491,7 @@ fn fetch_and_append_transactions(
         let (raw_transaction, _) =
             RawTransactionModel::get(rollup_id, batch_number, transaction_order)?;
         let raw_transaction = match raw_transaction {
-            RawTransaction::Eth(EthRawTransaction(data)) => data,
+            RawTransaction::Eth(eth) => eth.raw_transaction,
             RawTransaction::EthBundle(EthRawBundleTransaction(data)) => data,
         };
         raw_transaction_list.push(raw_transaction);

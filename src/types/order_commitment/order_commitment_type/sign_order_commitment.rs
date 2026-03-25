@@ -12,7 +12,7 @@ pub struct SignOrderCommitment {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OrderCommitmentData {
     pub rollup_id: RollupId,
-    pub batch_number: u64,
+    pub epoch: u64,
     pub transaction_order: u64,
 
     pub transaction_hash: String,
@@ -28,7 +28,7 @@ impl Default for OrderCommitmentData {
     fn default() -> Self {
         Self {
             rollup_id: RollupId::new(),
-            batch_number: 0,
+            epoch: 0,
             transaction_order: 0,
             transaction_hash: RawTransactionHash::default().as_string(),
             pre_merkle_path: Vec::new(),

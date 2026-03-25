@@ -3,11 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::rpc::prelude::*;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SyncRawTransaction {
+pub struct SyncEpochRawTransaction {
     pub rollup_id: RollupId,
 
-    pub batch_number: u64,
-    pub batch_tx_order: u64,
+    pub epoch: u64,
+    pub transaction_order: u64,
 
     pub raw_transaction: RawTransaction,
     pub order_commitment: OrderCommitment,
@@ -15,15 +15,15 @@ pub struct SyncRawTransaction {
     pub is_direct_sent: bool,
 }
 
-impl RpcParameter<AppState> for SyncRawTransaction {
+impl RpcParameter<AppState> for SyncEpochRawTransaction {
     type Response = ();
 
     fn method() -> &'static str {
-        "sync_raw_transaction"
+        "sync_epoch_raw_transaction"
     }
 
     async fn handler(self, _context: AppState) -> Result<Self::Response, RpcError> {
-        let start_sync_raw_transaction_time = SystemTime::now()
+        let start_sync_epoch_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
@@ -92,8 +92,8 @@ impl RpcParameter<AppState> for SyncRawTransaction {
 
         RawTransactionModel::put(
             &rollup_id,
-            self.batch_number,
-            self.batch_tx_order,
+            self.epoch,
+            self.transaction_order,
             self.raw_transaction.clone(),
             self.is_direct_sent,
         )
@@ -103,26 +103,20 @@ impl RpcParameter<AppState> for SyncRawTransaction {
         })?;
 
         self.order_commitment
-            .put(&rollup_id, self.batch_number, self.batch_tx_order)
+            .put(&rollup_id, self.epoch, self.transaction_order)
             .map_err(|error| {
                 tracing::error!("Failed to put order commitment: {:?}", error);
                 Error::Database(error)
             })?;
 
-        CanProvideTransactionInfo::add_can_provide_transaction_orders(
-            &rollup_id,
-            self.batch_number,
-            vec![self.batch_tx_order],
-        )?;
-
-        let end_sync_raw_transaction_time = SystemTime::now()
+        let end_sync_epoch_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
 
         tracing::info!(
-            "sync_raw_transaction - total take time: {:?}",
-            end_sync_raw_transaction_time - start_sync_raw_transaction_time
+            "sync_epoch_raw_transaction - total take time: {:?}",
+            end_sync_epoch_raw_transaction_time - start_sync_epoch_raw_transaction_time
         );
 
         Ok(())

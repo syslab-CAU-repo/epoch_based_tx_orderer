@@ -1,12 +1,15 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{
     rpc::{
         cluster::{BatchCreationMessage, SyncBatchCreation, SyncRawTransaction},
         external::issue_order_commitment,
         prelude::*,
     },
-    task::finalize_batch,
     types::*,
 };
+
+static PROCESSED_TX_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransaction {
@@ -21,10 +24,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
         "send_raw_transaction"
     }
 
-    async fn handler(self, context: AppState) -> Result<Self::Response, RpcError> {
+    async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
         let rollup = Rollup::get(&self.rollup_id)?;
-
-        let mut mut_rollup_metadata = RollupMetadata::get_mut(&self.rollup_id)?;
 
         let cluster_metadata = ClusterMetadata::get(
             rollup.platform,
@@ -36,21 +37,81 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterMetadataNotFound
         })?;
 
-        if cluster_metadata.is_leader {
-            let cluster = Cluster::get(
-                rollup.platform,
-                rollup.liveness_service_provider,
-                &rollup.cluster_id,
-                cluster_metadata.platform_block_height,
-            )
-            .map_err(|error| {
-                tracing::error!("Failed to get cluster: {:?}", error);
-                Error::ClusterNotFound
+        // 트랜잭션이 client에서 온 경우, ClusterMetadata의 epoch를 트랜잭션의 epoch로 설정
+        match &mut self.raw_transaction {
+            RawTransaction::Eth(eth_tx) => {
+                if eth_tx.epoch.is_none() { // if the transaction is from the client
+                    // set the epoch
+                    eth_tx.set_epoch(cluster_metadata.epoch); 
+                }
+                else {
+                    // transaction already has epoch/leader set (not from client)
+                }
+            }
+            RawTransaction::EthBundle(_) => {}
+        }
+
+        let signer = context.get_signer(rollup.platform).await.map_err(|_| {
+            tracing::error!("Signer not found for platform {:?}", rollup.platform);
+            Error::SignerNotFound
+        })?;
+
+        let cluster = Cluster::get(
+            rollup.platform,
+            rollup.liveness_service_provider,
+            &rollup.cluster_id,
+            cluster_metadata.platform_block_height,
+        )
+        .map_err(|error| {
+            tracing::error!("Failed to get cluster: {:?}", error);
+            Error::ClusterNotFound
+        })?;
+
+        // 현재 노드의 주소 가져오기
+        let tx_orderer_address = signer.address().clone();
+
+        // 현재 epoch의 리더 노드 주소 가져오기
+        let epoch_leader_address = match &self.raw_transaction {
+            RawTransaction::Eth(eth_tx) => eth_tx
+                .epoch
+                .and_then(|epoch| cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
+            RawTransaction::EthBundle(_) => None,
+        };
+
+        // 현재 노드가 현재 epoch의 리더인지 확인
+        let is_current_leader = match &self.raw_transaction {
+            RawTransaction::Eth(_) => {
+                let Some(leader_addr) = epoch_leader_address.as_ref() else {
+                    tracing::error!(
+                        "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
+                        self.rollup_id
+                    );
+                    return Err(
+                        Error::GeneralError(
+                            "No leader registered for this transaction epoch in cluster metadata"
+                                .into(),
+                        )
+                        .into(),
+                    );
+                };
+                tx_orderer_address == *leader_addr
+            }
+            RawTransaction::EthBundle(_) => cluster_metadata.is_leader,
+        };
+
+        if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
+            let mut mut_epoch_metadata = EpochMetadata::get_mut_or(&self.rollup_id, || EpochMetadata {
+                epoch: cluster_metadata.epoch,
+                transaction_order: 0,
             })?;
 
-            let batch_number = mut_rollup_metadata.batch_number;
-            let transaction_order = mut_rollup_metadata.transaction_order;
+            let epoch = mut_epoch_metadata.epoch;
+            let transaction_order = mut_epoch_metadata.transaction_order;
             let transaction_hash = self.raw_transaction.raw_transaction_hash();
+
+            mut_epoch_metadata.transaction_order += 1;
+
+            mut_epoch_metadata.update()?;
 
             RawTransactionModel::put_with_transaction_hash(
                 &self.rollup_id,
@@ -61,7 +122,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             RawTransactionModel::put(
                 &self.rollup_id,
-                batch_number,
+                epoch,
                 transaction_order,
                 self.raw_transaction.clone(),
                 true,
@@ -71,45 +132,26 @@ impl RpcParameter<AppState> for SendRawTransaction {
             let (_, pre_merkle_path) = merkle_tree.add_data(transaction_hash.as_ref()).await;
             drop(merkle_tree);
 
-            mut_rollup_metadata.transaction_order += 1;
-            CanProvideTransactionInfo::add_can_provide_transaction_orders(
-                &self.rollup_id,
-                batch_number,
-                vec![transaction_order],
-            )?;
-
-            let is_updated = mut_rollup_metadata.check_and_update_batch_info();
-
-            mut_rollup_metadata.update()?;
-
-            if is_updated {
-                context
-                    .merkle_tree_manager()
-                    .insert(&self.rollup_id, MerkleTree::new())
-                    .await;
-
-                finalize_batch(context.clone(), &self.rollup_id, batch_number);
-            }
-
             let order_commitment = issue_order_commitment(
                 context.clone(),
                 rollup.platform,
                 self.rollup_id.clone(),
                 rollup.order_commitment_type,
                 transaction_hash.clone(),
-                batch_number,
+                epoch,
                 transaction_order,
                 pre_merkle_path,
             )
             .await?;
 
-            order_commitment.put(&self.rollup_id, batch_number, transaction_order)?;
+            order_commitment.put(&self.rollup_id, epoch, transaction_order)?;
 
-            sync_raw_transaction(
+            
+            sync_epoch_raw_transaction(
                 context.clone(),
                 cluster,
                 self.rollup_id,
-                batch_number,
+                epoch,
                 transaction_order,
                 self.raw_transaction.clone(),
                 order_commitment.clone(),
@@ -123,12 +165,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 match self.raw_transaction {
                     RawTransaction::Eth(eth_raw_transaction) => {
                         let params = serde_json::json!([
-                            eth_raw_transaction.0,
-                            batch_number,
+                            eth_raw_transaction.raw_transaction,
+                            epoch,
                             transaction_order
                         ]);
 
-                        let transaction_hash: String = cloned_rpc_client
+                        let _transaction_hash: String = cloned_rpc_client
                             .request(
                                 &builder_rpc_url.unwrap(),
                                 "eth_sendRawTransaction",
@@ -156,9 +198,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 OrderCommitmentType::Sign => Ok(order_commitment),
             }
         } else {
-            drop(mut_rollup_metadata);
+            // === Not the leader: forward to the leader node ===
 
-            match cluster_metadata.leader_tx_orderer_rpc_info {
+            let leader_tx_orderer_rpc_info = epoch_leader_address
+                .as_ref()
+                .and_then(|addr| cluster.get_tx_orderer_rpc_info(addr))
+                .or_else(|| cluster_metadata.leader_tx_orderer_rpc_info.clone());
+
+            match leader_tx_orderer_rpc_info {
                 Some(leader_tx_orderer_rpc_info) => {
                     let leader_external_rpc_url = leader_tx_orderer_rpc_info
                         .external_rpc_url
@@ -200,7 +247,7 @@ pub fn sync_raw_transaction(
     cluster: Cluster,
     rollup_id: RollupId,
     batch_number: u64,
-    transaction_order: u64,
+    batch_tx_order: u64,
     raw_transaction: RawTransaction,
     order_commitment: OrderCommitment,
     is_direct_sent: bool,
@@ -214,7 +261,7 @@ pub fn sync_raw_transaction(
         let sync_raw_transaction = SyncRawTransaction {
             rollup_id,
             batch_number,
-            transaction_order,
+            batch_tx_order,
             raw_transaction,
             order_commitment: order_commitment,
             is_direct_sent,
@@ -284,6 +331,44 @@ pub fn sync_batch_creation(
                 other_cluster_rpc_url_list.clone(),
                 SyncBatchCreation::method(),
                 &sync_batch_creation,
+                Id::Null,
+            )
+            .await
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sync_epoch_raw_transaction(
+    context: AppState,
+    cluster: Cluster,
+    rollup_id: RollupId,
+    epoch: u64,
+    transaction_order: u64,
+    raw_transaction: RawTransaction,
+    order_commitment: OrderCommitment,
+    is_direct_sent: bool,
+) {
+    tokio::spawn(async move {
+        let other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
+        if other_cluster_rpc_url_list.is_empty() {
+            return;
+        }
+
+        let sync_raw_transaction = SyncEpochRawTransaction {
+            rollup_id,
+            epoch,
+            transaction_order,
+            raw_transaction,
+            order_commitment: order_commitment,
+            is_direct_sent,
+        };
+
+        context
+            .rpc_client()
+            .fire_and_forget_multicast(
+                other_cluster_rpc_url_list,
+                SyncEpochRawTransaction::method(),
+                &sync_raw_transaction,
                 Id::Null,
             )
             .await

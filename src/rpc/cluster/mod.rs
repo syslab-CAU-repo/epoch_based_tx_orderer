@@ -9,6 +9,10 @@ mod sync_encrypted_transaction;
 mod sync_leader_tx_orderer;
 mod sync_max_gas_limit;
 mod sync_raw_transaction;
+mod sync_epoch_raw_transaction;
+mod send_end_signal;
+mod enable_leader_processing;
+mod sync_can_provide_epoch_info;
 
 pub use add_mev_searcher_info::*;
 pub use create_batch::*;
@@ -21,3 +25,6 @@ pub use sync_encrypted_transaction::*;
 pub use sync_leader_tx_orderer::*;
 pub use sync_max_gas_limit::*;
 pub use sync_raw_transaction::*;
+pub use send_end_signal::*;
+pub use enable_leader_processing::*;
+pub use sync_can_provide_epoch_info::*;

@@ -212,7 +212,7 @@ pub async fn issue_order_commitment(
     rollup_id: RollupId,
     order_commitment_type: OrderCommitmentType,
     transaction_hash: RawTransactionHash,
-    batch_number: u64,
+    epoch: u64,
     transaction_order: u64,
     pre_merkle_path: Vec<[u8; 32]>,
 ) -> Result<OrderCommitment, RpcError> {
@@ -226,7 +226,7 @@ pub async fn issue_order_commitment(
             let signer = context.get_signer(platform).await?;
             let order_commitment_data = OrderCommitmentData {
                 rollup_id,
-                batch_number,
+                epoch,
                 transaction_hash: transaction_hash.as_string(),
                 transaction_order,
                 pre_merkle_path,

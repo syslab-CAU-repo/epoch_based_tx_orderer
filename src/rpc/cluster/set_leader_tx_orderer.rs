@@ -73,16 +73,31 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
         let signer = context.get_signer(rollup.platform).await?;
         let current_tx_orderer_address = signer.address();
 
+        let old_epoch = mut_cluster_metadata.epoch;
+
+        // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
+        if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
+            tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
+            mut_cluster_metadata.epoch_leader_map.insert(old_epoch, self.leader_change_message.current_leader_tx_orderer_address.clone());
+        }
+        mut_cluster_metadata.epoch = old_epoch + 1;
+
+        let new_epoch = mut_cluster_metadata.epoch;
+
+        // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
+        mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
+
         sync_leader_tx_orderer(
             context.clone(),
             cluster,
-            current_tx_orderer_address,
             self.leader_change_message.clone(),
             self.rollup_signature,
             rollup_metadata.batch_number,
             rollup_metadata.transaction_order,
             rollup_metadata.provided_batch_number,
             rollup_metadata.provided_transaction_order,
+            old_epoch,
+            new_epoch,
         )
         .await;
 

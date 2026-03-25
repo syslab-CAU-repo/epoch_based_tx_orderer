@@ -8,13 +8,13 @@ impl RawTransactionModel {
 
     pub fn put(
         rollup_id: &RollupId,
-        batch_number: u64,
+        epoch: u64,
         transaction_order: u64,
 
         raw_transaction: RawTransaction,
         is_direct_sent: bool,
     ) -> Result<(), KvStoreError> {
-        let key = &(Self::ID, rollup_id, batch_number, transaction_order);
+        let key = &(Self::ID, rollup_id, epoch, transaction_order);
 
         kvstore()?.put(key, &(raw_transaction, is_direct_sent))
     }
@@ -33,10 +33,10 @@ impl RawTransactionModel {
 
     pub fn get(
         rollup_id: &RollupId,
-        batch_number: u64,
+        epoch: u64,
         transaction_order: u64,
     ) -> Result<(RawTransaction, bool), KvStoreError> {
-        let key = &(Self::ID, rollup_id, batch_number, transaction_order);
+        let key = &(Self::ID, rollup_id, epoch, transaction_order);
 
         kvstore()?.get(key)
     }

@@ -1,9 +1,14 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use radius_sdk::json_rpc::server::ProcessPriority;
 
 use super::LeaderChangeMessage;
 use crate::rpc::prelude::*;
+
+use crate::rpc::cluster::SendEndSignal;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SyncLeaderTxOrderer {
@@ -15,6 +20,9 @@ pub struct SyncLeaderTxOrderer {
 
     pub provided_batch_number: u64,
     pub provided_transaction_order: i64,
+
+    pub old_epoch: u64,
+    pub new_epoch: u64,
 }
 
 impl RpcParameter<AppState> for SyncLeaderTxOrderer {
@@ -76,6 +84,26 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
             self.leader_change_message.platform_block_height;
         mut_cluster_metadata.is_leader = is_leader;
         mut_cluster_metadata.leader_tx_orderer_rpc_info = Some(leader_tx_orderer_rpc_info.clone());
+
+        // old_epoch → leader address (only if not already recorded)
+        if !mut_cluster_metadata.epoch_leader_map.contains_key(&self.old_epoch) {
+            mut_cluster_metadata.epoch_leader_map.insert(
+                self.old_epoch,
+                self.leader_change_message
+                    .current_leader_tx_orderer_address
+                    .clone(),
+            );
+        }
+
+        mut_cluster_metadata.epoch = self.new_epoch;
+
+        mut_cluster_metadata.epoch_leader_map.insert(
+            self.new_epoch,
+            self.leader_change_message
+                .next_leader_tx_orderer_address
+                .clone(),
+        );
+
         mut_cluster_metadata.update()?;
 
         let mut mut_rollup_metadata = RollupMetadata::get_mut(&rollup_id)?;
@@ -86,6 +114,41 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
         mut_rollup_metadata.provided_transaction_order = self.provided_transaction_order;
 
         mut_rollup_metadata.update()?;
+
+        let cluster_metadata = ClusterMetadata::get(
+            rollup.platform,
+            rollup.liveness_service_provider,
+            &rollup.cluster_id,
+        )?;
+
+        let epoch_leader_address = cluster_metadata.epoch_leader_map.get(&self.old_epoch).ok_or_else(|| {
+            tracing::error!(
+                "epoch_leader_address not found for old_epoch: {:?} - rollup_id: {:?}, cluster_id: {:?}",
+                self.old_epoch,
+                rollup_id,
+                rollup.cluster_id
+            );
+            Error::GeneralError("epoch_leader_address not found".into())
+        })?;
+
+        let epoch_leader_cluster_rpc_url = cluster
+            .get_tx_orderer_rpc_info(epoch_leader_address)
+            .and_then(|info| info.cluster_rpc_url)
+            .ok_or_else(|| {
+                tracing::error!(
+                    "cluster_rpc_url not found for epoch leader {:?} (old_epoch: {})",
+                    epoch_leader_address,
+                    self.old_epoch
+                );
+                Error::GeneralError("epoch leader cluster_rpc_url not found".into())
+            })?;
+
+        send_end_signal_to_epoch_leader(
+            context.clone(),
+            rollup_id,
+            self.old_epoch,
+            epoch_leader_cluster_rpc_url,
+        );
 
         let end_sync_leader_tx_orderer_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -100,4 +163,48 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
 
         Ok(())
     }
+}
+
+pub fn send_end_signal_to_epoch_leader(
+    context: AppState,
+    rollup_id: RollupId,
+    epoch: u64,
+    epoch_leader_rpc_url: String,
+) {
+    tokio::spawn(async move {
+        let rollup = match Rollup::get(&rollup_id) {
+            Ok(rollup) => rollup,
+            Err(e) => {
+                tracing::error!("Failed to retrieve rollup: {:?}", e);
+                return;
+            }
+        };
+
+        let signer = match context.get_signer(rollup.platform).await {
+            Ok(signer) => signer,
+            Err(e) => {
+                tracing::error!("Failed to get signer: {:?}", e);
+                return;
+            }
+        };
+
+        let sender_address = signer.address().clone();
+        let sender_address_clone = sender_address.clone();
+
+        let parameter = SendEndSignal {
+            rollup_id,
+            epoch,
+            sender_address: sender_address_clone,
+        };
+
+        context
+            .rpc_client()
+            .fire_and_forget_multicast(
+                vec![epoch_leader_rpc_url],
+                SendEndSignal::method(),
+                &parameter,
+                Id::Null,
+            )
+            .await;
+    });
 }
