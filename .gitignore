@@ -8,3 +8,14 @@
 
 /scripts/verify
 /utils
+
+**/logs/**
+data_*
+*.log
+*.tar.gz
+
+# tx_orderer 실험 설정값 변경 무시
+scripts/execute*/env.sh
+scripts/rpc-call/env.sh
+
+*.swp
