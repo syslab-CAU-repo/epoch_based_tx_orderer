@@ -171,6 +171,7 @@ impl RpcParameter<AppState> for SendEndSignal {
             current_node_cluster_rpc_url,
         );
 
+        /*
         if epoch_completed {
             let context = context.clone();
             let rollup_id = self.rollup_id.clone();
@@ -190,6 +191,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                 }
             });
         }
+        */
 
         Ok(())
     }
@@ -235,116 +237,3 @@ pub fn sync_can_provide_epoch_info(
     // tracing::info!("=== 🔄🕐 sync_can_provide_epoch_info 종료(epoch: {:?}) 🕐🔄 ===", epoch); // test codes
 }
 
-async fn create_batches_from_epoch(
-    context: AppState,
-    rollup_id: &RollupId,
-    cluster: Cluster,
-    can_provide_epoch_info: CanProvideEpochInfo,
-) -> Result<(), Error> {
-    let rollup = Rollup::get(rollup_id)?;
-    let cluster_metadata = ClusterMetadata::get(
-        rollup.platform,
-        rollup.liveness_service_provider,
-        &rollup.cluster_id,
-    )?;
-
-    if !cluster_metadata.can_process_as_leader {
-        return Ok(());
-    }
-
-    let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
-    let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
-
-    let last_batched_epoch = mut_epoch_metadata.last_batched_epoch;
-    
-    let epochs_to_process: Vec<u64> = can_provide_epoch_info
-        .completed_epoch
-        .iter()
-        .copied()
-        .filter(|&e| match last_batched_epoch {
-            Some(last) => e > last,
-            None => true,
-        })
-        .collect();
-
-    if epochs_to_process.is_empty() {
-        mut_epoch_metadata.update()?;
-        mut_rollup_metadata.update()?;
-        return Ok(());
-    }
-
-    for epoch in &epochs_to_process {
-        let mut epoch_tx_order = 0u64;
-
-        loop {
-            let (raw_transaction, is_direct_sent) =
-                match RawTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
-                    Ok(data) => data,
-                    Err(_) => break,
-                };
-
-            let batch_number = mut_rollup_metadata.batch_number;
-            let batch_tx_order = mut_rollup_metadata.transaction_order;
-
-            RawTransactionModel::put(
-                rollup_id,
-                batch_number,
-                batch_tx_order,
-                raw_transaction.clone(),
-                true,
-            )?;
-
-            mut_rollup_metadata.transaction_order += 1;
-            CanProvideTransactionInfo::add_can_provide_transaction_orders(
-                rollup_id,
-                batch_number,
-                vec![batch_tx_order],
-            )?;
-
-            let is_updated = mut_rollup_metadata.check_and_update_batch_info();
-
-            if is_updated {
-                context
-                    .merkle_tree_manager()
-                    .insert(rollup_id, MerkleTree::new())
-                    .await;
-
-                finalize_batch(context.clone(), rollup_id, batch_number);
-            }
-
-            let order_commitment = OrderCommitment::get(rollup_id, *epoch, epoch_tx_order)?;
-
-            sync_raw_transaction(
-                context.clone(),
-                cluster.clone(),
-                rollup_id.clone(),
-                batch_number,
-                batch_tx_order,
-                raw_transaction.clone(),
-                order_commitment.clone(),
-                true,
-            );
-
-            epoch_tx_order += 1;
-        }
-
-        mut_epoch_metadata.last_batched_epoch = Some(*epoch);
-    }
-
-    let final_batch_number = mut_rollup_metadata.batch_number;
-    let final_tx_order = mut_rollup_metadata.transaction_order;
-    let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
-    mut_epoch_metadata.update()?;
-    mut_rollup_metadata.update()?;
-
-    tracing::info!(
-        "create_batches_from_epoch - rollup_id: {:?}, epochs: {:?}, batch: {}, tx_order: {}, last_batched_epoch: {:?}",
-        rollup_id,
-        epochs_to_process,
-        final_batch_number,
-        final_tx_order,
-        final_last_epoch,
-    );
-
-    Ok(())
-}

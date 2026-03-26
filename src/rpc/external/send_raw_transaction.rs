@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     rpc::{
-        cluster::{BatchCreationMessage, SyncBatchCreation, SyncRawTransaction},
+        cluster::{BatchCreationMessage, SyncBatchCreation, SyncEpochRawTransaction, SyncRawTransaction},
         external::issue_order_commitment,
         prelude::*,
     },
@@ -100,16 +100,20 @@ impl RpcParameter<AppState> for SendRawTransaction {
         };
 
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
-            let mut mut_epoch_metadata = EpochMetadata::get_mut_or(&self.rollup_id, || EpochMetadata {
-                epoch: cluster_metadata.epoch,
-                transaction_order: 0,
-            })?;
+            let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
-            let epoch = mut_epoch_metadata.epoch;
-            let transaction_order = mut_epoch_metadata.transaction_order;
+            let epoch = mut_epoch_metadata.current_epoch();
+            if epoch != cluster_metadata.epoch {
+                return Err(Error::GeneralError(format!(
+                    "Epoch mismatch: EpochMetadata epoch={}, ClusterMetadata epoch={}",
+                    epoch, cluster_metadata.epoch,
+                )).into());
+            }
+
+            let transaction_order = mut_epoch_metadata.transaction_order(epoch);
             let transaction_hash = self.raw_transaction.raw_transaction_hash();
 
-            mut_epoch_metadata.transaction_order += 1;
+            mut_epoch_metadata.increment_transaction_order(epoch);
 
             mut_epoch_metadata.update()?;
 
@@ -354,7 +358,7 @@ pub fn sync_epoch_raw_transaction(
             return;
         }
 
-        let sync_raw_transaction = SyncEpochRawTransaction {
+        let sync_epoch_raw_transaction = SyncEpochRawTransaction {
             rollup_id,
             epoch,
             transaction_order,
@@ -368,7 +372,7 @@ pub fn sync_epoch_raw_transaction(
             .fire_and_forget_multicast(
                 other_cluster_rpc_url_list,
                 SyncEpochRawTransaction::method(),
-                &sync_raw_transaction,
+                &sync_epoch_raw_transaction,
                 Id::Null,
             )
             .await

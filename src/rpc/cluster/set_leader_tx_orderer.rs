@@ -87,6 +87,8 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
+        let epoch_metadata = EpochMetadata::get(&rollup_id).unwrap_or_default();
+
         sync_leader_tx_orderer(
             context.clone(),
             cluster,
@@ -98,6 +100,7 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
             rollup_metadata.provided_transaction_order,
             old_epoch,
             new_epoch,
+            epoch_metadata,
         )
         .await;
 

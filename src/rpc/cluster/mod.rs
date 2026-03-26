@@ -25,6 +25,7 @@ pub use sync_encrypted_transaction::*;
 pub use sync_leader_tx_orderer::*;
 pub use sync_max_gas_limit::*;
 pub use sync_raw_transaction::*;
+pub use sync_epoch_raw_transaction::*;
 pub use send_end_signal::*;
 pub use enable_leader_processing::*;
 pub use sync_can_provide_epoch_info::*;

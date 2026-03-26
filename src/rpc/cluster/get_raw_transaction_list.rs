@@ -11,9 +11,10 @@ use super::SyncLeaderTxOrderer;
 use crate::{
     rpc::{
         cluster::{GetOrderCommitmentInfo, GetOrderCommitmentInfoResponse},
+        external::sync_raw_transaction,
         prelude::*,
     },
-    task::{send_transaction_list_to_mev_searcher, MevTargetTransaction},
+    task::{finalize_batch, send_transaction_list_to_mev_searcher, MevTargetTransaction},
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -64,6 +65,26 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         let rollup_id = self.leader_change_message.rollup_id.clone();
 
+        let rollup = Rollup::get(&rollup_id)?;
+
+        let cluster = Cluster::get(
+            rollup.platform,
+            rollup.liveness_service_provider,
+            &rollup.cluster_id,
+            self.leader_change_message.platform_block_height,
+        )?;
+        
+        let can_provide_epoch_info = CanProvideEpochInfo::get(&rollup_id)?;
+        
+        if let Err(e) = create_batches_from_epoch(
+            context.clone(),
+            &rollup_id,
+            cluster.clone(),
+            can_provide_epoch_info,
+        ) {
+            tracing::error!("Failed to create batches from epoch - rollup_id: {:?}, error: {:?}", rollup_id, e);
+        }
+
         let rollup_metadata = match RollupMetadata::get(&rollup_id) {
             Ok(metadata) => metadata,
             Err(err) => {
@@ -78,8 +99,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                 });
             }
         };
-
-        let rollup = Rollup::get(&rollup_id)?;
 
         let start_batch_number = rollup_metadata.provided_batch_number;
         let mut current_provided_batch_number = start_batch_number;
@@ -129,13 +148,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                 }
             }
         }
-
-        let cluster = Cluster::get(
-            rollup.platform,
-            rollup.liveness_service_provider,
-            &rollup.cluster_id,
-            self.leader_change_message.platform_block_height,
-        )?;
 
         let mut mut_rollup_metadata = RollupMetadata::get_mut(&rollup_id)?;
 
@@ -241,6 +253,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
+        let epoch_metadata = EpochMetadata::get(&rollup_id).unwrap_or_default();
+
         sync_leader_tx_orderer(
             context.clone(),
             cluster,
@@ -252,6 +266,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             mut_rollup_metadata.provided_transaction_order,
             old_epoch,
             new_epoch,
+            epoch_metadata,
         )
         .await;
 
@@ -348,7 +363,8 @@ pub async fn sync_leader_tx_orderer(
     provided_batch_number: u64,
     provided_transaction_order: i64,
     old_epoch: u64, 
-    new_epoch: u64, 
+    new_epoch: u64,
+    epoch_metadata: EpochMetadata,
 ) {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
@@ -378,7 +394,8 @@ pub async fn sync_leader_tx_orderer(
             provided_batch_number:      provided_batch_number,
             provided_transaction_order: provided_transaction_order,
             old_epoch:                  old_epoch, 
-            new_epoch:                  new_epoch, 
+            new_epoch:                  new_epoch,
+            epoch_metadata:             epoch_metadata,
         };
 
         let current_leader_tx_orderer_address = leader_change_message.current_leader_tx_orderer_address.clone();
@@ -497,4 +514,147 @@ fn fetch_and_append_transactions(
         raw_transaction_list.push(raw_transaction);
     }
     Ok(())
+}
+
+fn create_batches_from_epoch(
+    context: AppState,
+    rollup_id: &RollupId,
+    cluster: Cluster,
+    can_provide_epoch_info: CanProvideEpochInfo,
+) -> Result<(), Error> {
+    let rollup = Rollup::get(rollup_id)?;
+    let cluster_metadata = ClusterMetadata::get(
+        rollup.platform,
+        rollup.liveness_service_provider,
+        &rollup.cluster_id,
+    )?;
+
+    /*
+    if !cluster_metadata.can_process_as_leader {
+        return Ok(());
+    }
+    */
+
+    let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
+    let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
+
+    let last_batched_epoch = mut_epoch_metadata.last_batched_epoch;
+    
+    /*
+    let epochs_to_process: Vec<u64> = can_provide_epoch_info
+        .completed_epoch
+        .iter()
+        .copied()
+        .filter(|&e| match last_batched_epoch {
+            Some(last) => e > last,
+            None => true,
+        })
+        .collect();
+    */
+
+    let epochs_to_process = get_consecutive_epochs(
+        &can_provide_epoch_info.completed_epoch,
+        last_batched_epoch.unwrap_or(0),
+    );
+
+    if epochs_to_process.is_empty() {
+        mut_epoch_metadata.update()?;
+        mut_rollup_metadata.update()?;
+        return Ok(());
+    }
+
+    for epoch in &epochs_to_process {
+        let mut epoch_tx_order = 0u64;
+
+        loop {
+            let (raw_transaction, is_direct_sent) =
+                match RawTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
+                    Ok(data) => data,
+                    Err(_) => break,
+                };
+
+            let batch_number = mut_rollup_metadata.batch_number;
+            let batch_tx_order = mut_rollup_metadata.transaction_order;
+
+            RawTransactionModel::put(
+                rollup_id,
+                batch_number,
+                batch_tx_order,
+                raw_transaction.clone(),
+                true,
+            )?;
+
+            mut_rollup_metadata.transaction_order += 1;
+
+            CanProvideTransactionInfo::add_can_provide_transaction_orders(
+                rollup_id,
+                batch_number,
+                vec![batch_tx_order],
+            )?;
+
+            let is_updated = mut_rollup_metadata.check_and_update_batch_info();
+
+            if is_updated {
+                tokio::runtime::Handle::current().block_on(
+                    context.merkle_tree_manager().insert(rollup_id, MerkleTree::new()),
+                );
+
+                finalize_batch(context.clone(), rollup_id, batch_number);
+            }
+
+            let order_commitment = OrderCommitment::get(rollup_id, *epoch, epoch_tx_order)?;
+
+            sync_raw_transaction(
+                context.clone(),
+                cluster.clone(),
+                rollup_id.clone(),
+                batch_number,
+                batch_tx_order,
+                raw_transaction.clone(),
+                order_commitment.clone(),
+                true,
+            );
+
+            epoch_tx_order += 1;
+        }
+
+        mut_epoch_metadata.last_batched_epoch = Some(*epoch);
+    }
+
+    let final_batch_number = mut_rollup_metadata.batch_number;
+    let final_tx_order = mut_rollup_metadata.transaction_order;
+    let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
+
+    mut_epoch_metadata.update()?;
+    mut_rollup_metadata.update()?;
+
+    tracing::info!(
+        "create_batches_from_epoch - rollup_id: {:?}, epochs: {:?}, batch: {}, tx_order: {}, last_batched_epoch: {:?}",
+        rollup_id,
+        epochs_to_process,
+        final_batch_number,
+        final_tx_order,
+        final_last_epoch,
+    );
+
+    Ok(())
+}
+
+fn get_consecutive_epochs(
+    completed_epoch: &BTreeSet<u64>,
+    last_batched_epoch: u64,
+) -> Vec<u64> {
+    let mut result = Vec::new();
+    let mut expected = last_batched_epoch + 1;
+
+    for &epoch in completed_epoch {
+        if epoch == expected {
+            result.push(epoch);
+            expected += 1;
+        } else if epoch > expected {
+            break;
+        }
+    }
+
+    result
 }

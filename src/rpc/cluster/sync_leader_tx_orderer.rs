@@ -23,6 +23,8 @@ pub struct SyncLeaderTxOrderer {
 
     pub old_epoch: u64,
     pub new_epoch: u64,
+
+    pub epoch_metadata: EpochMetadata,
 }
 
 impl RpcParameter<AppState> for SyncLeaderTxOrderer {
@@ -114,6 +116,14 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
         mut_rollup_metadata.provided_transaction_order = self.provided_transaction_order;
 
         mut_rollup_metadata.update()?;
+
+        let mut mut_epoch_metadata = EpochMetadata::get_mut(&rollup_id)?;
+        mut_epoch_metadata.epoch_transaction_orders = self.epoch_metadata.epoch_transaction_orders.clone();
+        mut_epoch_metadata.last_batched_epoch = self.epoch_metadata.last_batched_epoch;
+        mut_epoch_metadata.update().map_err(|e| {
+            tracing::error!("Failed to update epoch metadata: {:?}", e);
+            Error::GeneralError("Failed to update epoch metadata".into())
+        })?;
 
         let cluster_metadata = ClusterMetadata::get(
             rollup.platform,
