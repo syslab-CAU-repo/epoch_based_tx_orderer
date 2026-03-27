@@ -74,7 +74,17 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             self.leader_change_message.platform_block_height,
         )?;
         
-        let can_provide_epoch_info = CanProvideEpochInfo::get(&rollup_id)?;
+        let can_provide_epoch_info = match CanProvideEpochInfo::get(&rollup_id) {
+            Ok(info) => info,
+            Err(err) => {
+                tracing::warn!(
+                    "CanProvideEpochInfo not found - rollup_id: {:?}, error: {:?}. Using default.",
+                    rollup_id,
+                    err,
+                );
+                CanProvideEpochInfo::default()
+            }
+        };
         
         if let Err(e) = create_batches_from_epoch(
             context.clone(),
