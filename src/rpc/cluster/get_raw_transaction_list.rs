@@ -91,7 +91,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             &rollup_id,
             cluster.clone(),
             can_provide_epoch_info,
-        ) {
+        ).await {
             tracing::error!("Failed to create batches from epoch - rollup_id: {:?}, error: {:?}", rollup_id, e);
         }
 
@@ -526,7 +526,7 @@ fn fetch_and_append_transactions(
     Ok(())
 }
 
-fn create_batches_from_epoch(
+async fn create_batches_from_epoch(
     context: AppState,
     rollup_id: &RollupId,
     cluster: Cluster,
