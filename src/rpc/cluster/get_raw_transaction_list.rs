@@ -263,7 +263,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
-        let epoch_metadata = EpochMetadata::get(&rollup_id).unwrap_or_default();
+        let epoch_metadata = EpochMetadata::get(&rollup_id)?;
 
         sync_leader_tx_orderer(
             context.clone(),

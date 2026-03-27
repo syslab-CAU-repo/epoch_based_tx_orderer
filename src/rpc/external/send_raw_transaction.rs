@@ -102,13 +102,17 @@ impl RpcParameter<AppState> for SendRawTransaction {
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
             let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
-            let epoch = mut_epoch_metadata.current_epoch();
+            // let epoch = mut_epoch_metadata.current_epoch();
+            let epoch = cluster_metadata.epoch;
+
+            /*
             if epoch != cluster_metadata.epoch {
                 return Err(Error::GeneralError(format!(
                     "Epoch mismatch: EpochMetadata epoch={}, ClusterMetadata epoch={}",
                     epoch, cluster_metadata.epoch,
                 )).into());
             }
+            */
 
             let transaction_order = mut_epoch_metadata.transaction_order(epoch);
             let transaction_hash = self.raw_transaction.raw_transaction_hash();
