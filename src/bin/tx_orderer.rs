@@ -323,6 +323,22 @@ async fn initialize_cluster_rpc_server(context: AppState) -> Result<(), Error> {
         .register_rpc_method::<cluster::SetLeaderTxOrderer>()
         .await?;
 
+    cluster_rpc_server
+        .register_rpc_method::<cluster::EnableLeaderProcessing>()
+        .await?;
+
+    cluster_rpc_server
+        .register_rpc_method::<cluster::SyncCanProvideEpochInfo>()
+        .await?;
+
+    cluster_rpc_server
+        .register_rpc_method::<cluster::SendEndSignal>()
+        .await?;
+
+    cluster_rpc_server
+        .register_rpc_method::<cluster::SyncEpochRawTransaction>()
+        .await?;
+
     let cluster_handle = cluster_rpc_server.init(cluster_rpc_url.clone()).await?;
 
     tracing::info!(
