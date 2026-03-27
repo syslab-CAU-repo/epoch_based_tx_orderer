@@ -605,11 +605,12 @@ async fn create_batches_from_epoch(
             let is_updated = mut_rollup_metadata.check_and_update_batch_info();
 
             if is_updated {
-                tokio::runtime::Handle::current().block_on(
-                    context.merkle_tree_manager().insert(rollup_id, MerkleTree::new()),
-                );
+                context
+                    .merkle_tree_manager()
+                    .insert(rollup_id, MerkleTree::new())
+                    .await;
 
-                finalize_batch(context.clone(), rollup_id, batch_number);
+                finalize_batch(context.clone(), &rollup_id, batch_number);
             }
 
             let order_commitment = OrderCommitment::get(rollup_id, *epoch, epoch_tx_order)?;
