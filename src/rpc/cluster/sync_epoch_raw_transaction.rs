@@ -23,10 +23,12 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
     }
 
     async fn handler(self, _context: AppState) -> Result<Self::Response, RpcError> {
+        /* test code
         let start_sync_epoch_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
+        */
 
         let rollup_id = self.rollup_id.clone();
         let rollup = Rollup::get(&rollup_id).map_err(|error| {
@@ -109,6 +111,7 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
                 Error::Database(error)
             })?;
 
+        /* 
         let end_sync_epoch_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -118,6 +121,7 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
             "sync_epoch_raw_transaction - total take time: {:?}",
             end_sync_epoch_raw_transaction_time - start_sync_epoch_raw_transaction_time
         );
+        */
 
         Ok(())
     }
