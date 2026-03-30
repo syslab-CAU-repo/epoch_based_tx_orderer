@@ -37,6 +37,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterMetadataNotFound
         })?;
 
+        let signer = context.get_signer(rollup.platform).await.map_err(|_| {
+            tracing::error!("Signer not found for platform {:?}", rollup.platform);
+            Error::SignerNotFound
+        })?;
+
+        // 현재 노드의 주소 가져오기
+        let tx_orderer_address = signer.address().clone();
+
         // 트랜잭션이 client에서 온 경우, ClusterMetadata의 epoch를 트랜잭션의 epoch로 설정
         match &mut self.raw_transaction {
             RawTransaction::Eth(eth_tx) => {
@@ -46,15 +54,29 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 }
                 else {
                     // transaction already has epoch/leader set (not from client)
+                    let eth_tx_epoch = eth_tx.epoch.unwrap();
+                    if eth_tx_epoch > cluster_metadata.epoch {
+                        if cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
+                            tracing::info!(
+                                "Received transaction for future epoch from peer; inferring self as leader for epoch. tx_epoch={:?}, local_epoch={:?}",
+                                eth_tx_epoch,
+                                cluster_metadata.epoch,
+                            );
+
+                            let mut mut_cluster_metadata = ClusterMetadata::get_mut(
+                                rollup.platform,
+                                rollup.liveness_service_provider,
+                                &rollup.cluster_id,
+                            )?;
+
+                            mut_cluster_metadata.epoch_leader_map.insert(eth_tx_epoch, tx_orderer_address.clone());
+                            mut_cluster_metadata.update()?;
+                        }
+                    }
                 }
             }
             RawTransaction::EthBundle(_) => {}
         }
-
-        let signer = context.get_signer(rollup.platform).await.map_err(|_| {
-            tracing::error!("Signer not found for platform {:?}", rollup.platform);
-            Error::SignerNotFound
-        })?;
 
         let cluster = Cluster::get(
             rollup.platform,
@@ -66,9 +88,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
             tracing::error!("Failed to get cluster: {:?}", error);
             Error::ClusterNotFound
         })?;
-
-        // 현재 노드의 주소 가져오기
-        let tx_orderer_address = signer.address().clone();
 
         // 현재 epoch의 리더 노드 주소 가져오기
         let epoch_leader_address = match &self.raw_transaction {
@@ -103,7 +122,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
             let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
             // let epoch = mut_epoch_metadata.current_epoch();
-            let epoch = cluster_metadata.epoch;
+            let epoch = match &self.raw_transaction {
+                RawTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_metadata.epoch),
+                RawTransaction::EthBundle(_) => cluster_metadata.epoch,
+            };
 
             /*
             if epoch != cluster_metadata.epoch {

@@ -84,7 +84,18 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
 
         let new_epoch = mut_cluster_metadata.epoch;
 
-        // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
+        if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&new_epoch) {
+            if *provisional_leader != self.leader_change_message.next_leader_tx_orderer_address {
+                tracing::error!(
+                    "Epoch leader mismatch for epoch {}: provisionally registered {:?}, but actual leader is {:?}; rollup_id={:?}",
+                    new_epoch,
+                    provisional_leader,
+                    self.leader_change_message.next_leader_tx_orderer_address,
+                    rollup_id,
+                );
+            }
+        }
+
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
         let epoch_metadata = EpochMetadata::get(&rollup_id).unwrap_or_default();

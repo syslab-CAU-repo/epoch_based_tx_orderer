@@ -99,6 +99,18 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
 
         mut_cluster_metadata.epoch = self.new_epoch;
 
+        if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&self.new_epoch) {
+            if *provisional_leader != self.leader_change_message.next_leader_tx_orderer_address {
+                tracing::error!(
+                    "Epoch leader mismatch for epoch {}: provisionally registered {:?}, but actual leader is {:?}; rollup_id={:?}",
+                    self.new_epoch,
+                    provisional_leader,
+                    self.leader_change_message.next_leader_tx_orderer_address,
+                    rollup_id,
+                );
+            }
+        }
+
         mut_cluster_metadata.epoch_leader_map.insert(
             self.new_epoch,
             self.leader_change_message

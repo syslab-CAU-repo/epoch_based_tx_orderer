@@ -658,6 +658,13 @@ fn get_consecutive_epochs(
     let mut result = Vec::new();
     let mut expected = last_batched_epoch + 1;
 
+    tracing::info!(
+        "get_consecutive_epochs - last_batched_epoch: {}, completed_epoch: {:?}, result (before loop): {:?}",
+        last_batched_epoch,
+        completed_epoch,
+        result,
+    );
+
     for &epoch in completed_epoch {
         if epoch == expected {
             result.push(epoch);
@@ -666,6 +673,13 @@ fn get_consecutive_epochs(
             break;
         }
     }
+
+    tracing::info!(
+        "get_consecutive_epochs - last_batched_epoch: {}, completed_epoch: {:?}, result (after loop): {:?}",
+        last_batched_epoch,
+        completed_epoch,
+        result,
+    );
 
     result
 }

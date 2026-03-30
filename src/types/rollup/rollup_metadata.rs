@@ -113,8 +113,13 @@ impl Default for RollupMetadata {
 impl RollupMetadata {
     pub fn check_and_update_batch_info(&mut self) -> bool {
         if self.transaction_order == self.max_transaction_count_per_batch {
+            tracing::info!("check_and_update_batch_info - (before)Batch number: {}, Transaction order: {}", self.batch_number, self.transaction_order); // test code
+            tracing::info!("check_and_update_batch_info - Max transaction count per batch: {}", self.max_transaction_count_per_batch); // test code
+
             self.batch_number += 1;
             self.transaction_order = 0;
+
+            tracing::info!("check_and_update_batch_info - (after)Batch number: {}, Transaction order: {}", self.batch_number, self.transaction_order); // test code
 
             return true;
         }
