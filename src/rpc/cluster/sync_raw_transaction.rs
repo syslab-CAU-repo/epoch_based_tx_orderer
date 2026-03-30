@@ -23,13 +23,13 @@ impl RpcParameter<AppState> for SyncRawTransaction {
     }
 
     async fn handler(self, _context: AppState) -> Result<Self::Response, RpcError> {
-        /* 
+        /*
         let start_sync_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
         */
-        
+
         let rollup_id = self.rollup_id.clone();
         let rollup = Rollup::get(&rollup_id).map_err(|error| {
             tracing::error!("Failed to get rollup: {:?}", error);

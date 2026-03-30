@@ -140,6 +140,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                     current_provided_transaction_order,
                 );
 
+                tracing::info!("get_raw_transaction_list - current_provided_batch_number: {:?} / valid_end_transaction_order: {:?}", current_provided_batch_number, valid_end_transaction_order); // test code
+
                 fetch_and_append_transactions(
                     &rollup_id,
                     current_provided_batch_number,
