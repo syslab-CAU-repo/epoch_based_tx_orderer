@@ -119,7 +119,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         let mut iteration_count = 0; // test code
 
         while let Ok(batch) = Batch::get(&rollup_id, current_provided_batch_number) {
-            tracing::info!("= {:?}th batch interation(Batch 번호: {:?}) =", iteration_count, current_provided_batch_number); // test code
+            tracing::info!("get_raw_transaction_list - *** {:?}th batch interation(Batch 번호: {:?}) ***", iteration_count, current_provided_batch_number); // test code
 
             let start_transaction_order = if current_provided_batch_number == start_batch_number {
                 current_provided_transaction_order + 1
@@ -504,7 +504,7 @@ fn extract_raw_transactions(batch: Batch, start_transaction_order: u64) -> Vec<S
         .filter_map(|(i, transaction)| {
             if (i as u64) >= start_transaction_order {
                 Some(match transaction {
-                    RawTransaction::Eth(eth) => eth.raw_transaction,
+                    RawTransaction::Eth(EthRawTransaction(data)) => data,
                     RawTransaction::EthBundle(EthRawBundleTransaction(data)) => data,
                 })
             } else {
@@ -550,7 +550,7 @@ fn fetch_and_append_transactions(
         let (raw_transaction, _) =
             RawTransactionModel::get(rollup_id, batch_number, transaction_order)?;
         let raw_transaction = match raw_transaction {
-            RawTransaction::Eth(eth) => eth.raw_transaction,
+            RawTransaction::Eth(EthRawTransaction(data)) => data,
             RawTransaction::EthBundle(EthRawBundleTransaction(data)) => data,
         };
         raw_transaction_list.push(raw_transaction);
@@ -571,28 +571,10 @@ async fn create_batches_from_epoch(
         &rollup.cluster_id,
     )?;
 
-    /*
-    if !cluster_metadata.can_process_as_leader {
-        return Ok(());
-    }
-    */
-
     let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
     let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
 
     let last_batched_epoch = mut_epoch_metadata.last_batched_epoch;
-    
-    /*
-    let epochs_to_process: Vec<u64> = can_provide_epoch_info
-        .completed_epoch
-        .iter()
-        .copied()
-        .filter(|&e| match last_batched_epoch {
-            Some(last) => e > last,
-            None => true,
-        })
-        .collect();
-    */
 
     let epochs_to_process = get_consecutive_epochs(
         &can_provide_epoch_info.completed_epoch,
@@ -609,14 +591,24 @@ async fn create_batches_from_epoch(
         let mut epoch_tx_order = 0u64;
 
         loop {
-            let (raw_transaction, is_direct_sent) =
-                match RawTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
+            let (raw_epoch_transaction, is_direct_sent) =
+                match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
                     Ok(data) => data,
                     Err(_) => break,
                 };
 
             let batch_number = mut_rollup_metadata.batch_number;
             let batch_tx_order = mut_rollup_metadata.transaction_order;
+
+            // RawEpochTransaction to RawTransaction
+            let raw_transaction = match raw_epoch_transaction {
+                RawEpochTransaction::Eth(eth) => {
+                    RawTransaction::Eth(EthRawTransaction::from(eth.raw_transaction))
+                }
+                RawEpochTransaction::EthBundle(EthRawEpochBundleTransaction(data)) => {
+                    RawTransaction::EthBundle(EthRawBundleTransaction::from(data))
+                }
+            };
 
             RawTransactionModel::put(
                 rollup_id,

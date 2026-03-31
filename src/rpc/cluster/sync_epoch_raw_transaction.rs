@@ -9,7 +9,7 @@ pub struct SyncEpochRawTransaction {
     pub epoch: u64,
     pub transaction_order: u64,
 
-    pub raw_transaction: RawTransaction,
+    pub raw_transaction: RawEpochTransaction,
     pub order_commitment: OrderCommitment,
 
     pub is_direct_sent: bool,
@@ -81,7 +81,7 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
 
         let transaction_hash = self.raw_transaction.raw_transaction_hash();
 
-        RawTransactionModel::put_with_transaction_hash(
+        RawEpochTransactionModel::put_with_transaction_hash(
             &rollup_id,
             &transaction_hash,
             self.raw_transaction.clone(),
@@ -92,7 +92,7 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
             Error::Database(error)
         })?;
 
-        RawTransactionModel::put(
+        RawEpochTransactionModel::put(
             &rollup_id,
             self.epoch,
             self.transaction_order,

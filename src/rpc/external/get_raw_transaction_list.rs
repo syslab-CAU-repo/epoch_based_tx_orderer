@@ -25,7 +25,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .raw_transaction_list
             .into_iter()
             .map(|transaction| match transaction {
-                RawTransaction::Eth(eth) => eth.raw_transaction,
+                RawTransaction::Eth(EthRawTransaction(data)) => data,
                 RawTransaction::EthBundle(EthRawBundleTransaction(data)) => data,
             })
             .collect();

@@ -14,7 +14,7 @@ static PROCESSED_TX_COUNT: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransaction {
     pub rollup_id: RollupId,
-    pub raw_transaction: RawTransaction,
+    pub raw_transaction: RawEpochTransaction,
 }
 
 impl RpcParameter<AppState> for SendRawTransaction {
@@ -47,7 +47,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
         // 트랜잭션이 client에서 온 경우, ClusterMetadata의 epoch를 트랜잭션의 epoch로 설정
         match &mut self.raw_transaction {
-            RawTransaction::Eth(eth_tx) => {
+            RawEpochTransaction::Eth(eth_tx) => {
                 if eth_tx.epoch.is_none() { // if the transaction is from the client
                     // set the epoch
                     eth_tx.set_epoch(cluster_metadata.epoch); 
@@ -75,7 +75,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     }
                 }
             }
-            RawTransaction::EthBundle(_) => {}
+            RawEpochTransaction::EthBundle(_) => {}
         }
 
         let cluster = Cluster::get(
@@ -91,15 +91,15 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
         // 현재 epoch의 리더 노드 주소 가져오기
         let epoch_leader_address = match &self.raw_transaction {
-            RawTransaction::Eth(eth_tx) => eth_tx
+            RawEpochTransaction::Eth(eth_tx) => eth_tx
                 .epoch
                 .and_then(|epoch| cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
-            RawTransaction::EthBundle(_) => None,
+            RawEpochTransaction::EthBundle(_) => None,
         };
 
         // 현재 노드가 현재 epoch의 리더인지 확인
         let is_current_leader = match &self.raw_transaction {
-            RawTransaction::Eth(_) => {
+            RawEpochTransaction::Eth(_) => {
                 let Some(leader_addr) = epoch_leader_address.as_ref() else {
                     tracing::error!(
                         "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
@@ -115,7 +115,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 };
                 tx_orderer_address == *leader_addr
             }
-            RawTransaction::EthBundle(_) => cluster_metadata.is_leader,
+            RawEpochTransaction::EthBundle(_) => cluster_metadata.is_leader,
         };
 
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
@@ -123,8 +123,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             // let epoch = mut_epoch_metadata.current_epoch();
             let epoch = match &self.raw_transaction {
-                RawTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_metadata.epoch),
-                RawTransaction::EthBundle(_) => cluster_metadata.epoch,
+                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_metadata.epoch),
+                RawEpochTransaction::EthBundle(_) => cluster_metadata.epoch,
             };
 
             /*
@@ -143,14 +143,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             mut_epoch_metadata.update()?;
 
-            RawTransactionModel::put_with_transaction_hash(
+            RawEpochTransactionModel::put_with_transaction_hash(
                 &self.rollup_id,
                 &transaction_hash,
                 self.raw_transaction.clone(),
                 true,
             )?;
 
-            RawTransactionModel::put(
+            RawEpochTransactionModel::put(
                 &self.rollup_id,
                 epoch,
                 transaction_order,
@@ -193,7 +193,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             if builder_rpc_url.is_some() {
                 match self.raw_transaction {
-                    RawTransaction::Eth(eth_raw_transaction) => {
+                    RawEpochTransaction::Eth(eth_raw_transaction) => {
                         let params = serde_json::json!([
                             eth_raw_transaction.raw_transaction,
                             epoch,
@@ -213,7 +213,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                 Error::RpcClient(error)
                             })?;
                     }
-                    RawTransaction::EthBundle(_eth_bundle_raw_transaction) => {
+                    RawEpochTransaction::EthBundle(_eth_bundle_raw_transaction) => {
                         unimplemented!("EthBundle raw transaction is not supported yet");
                     }
                 }
@@ -374,7 +374,7 @@ pub fn sync_epoch_raw_transaction(
     rollup_id: RollupId,
     epoch: u64,
     transaction_order: u64,
-    raw_transaction: RawTransaction,
+    raw_transaction: RawEpochTransaction,
     order_commitment: OrderCommitment,
     is_direct_sent: bool,
 ) {
