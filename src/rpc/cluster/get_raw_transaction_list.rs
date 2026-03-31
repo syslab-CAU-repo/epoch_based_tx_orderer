@@ -114,6 +114,9 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         let mut current_provided_batch_number = start_batch_number;
         let mut current_provided_transaction_order = rollup_metadata.provided_transaction_order;
 
+        tracing::info!("get_raw_transaction_list - (before)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
+        tracing::info!("get_raw_transaction_list - (before)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
+
         while let Ok(batch) = Batch::get(&rollup_id, current_provided_batch_number) {
             let start_transaction_order = if current_provided_batch_number == start_batch_number {
                 current_provided_transaction_order + 1
@@ -129,6 +132,9 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             current_provided_batch_number += 1;
             current_provided_transaction_order = -1;
         }
+
+        tracing::info!("get_raw_transaction_list - (after)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
+        tracing::info!("get_raw_transaction_list - (after)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
 
         if let Ok(can_provide_transaction_info) = CanProvideTransactionInfo::get(&rollup_id) {
             if let Some(can_provide_transaction_orderers) = can_provide_transaction_info
