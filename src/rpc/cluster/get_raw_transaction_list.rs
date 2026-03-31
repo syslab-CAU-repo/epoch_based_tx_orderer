@@ -7,7 +7,7 @@ use std::{
 use radius_sdk::{json_rpc::client::Priority, signature::Address};
 use tokio::{sync::mpsc::UnboundedReceiver, time::Instant};
 
-use super::SyncLeaderTxOrderer;
+use super::{send_end_signal_to_epoch_leader, SyncLeaderTxOrderer};
 use crate::{
     rpc::{
         cluster::{GetOrderCommitmentInfo, GetOrderCommitmentInfoResponse},
@@ -253,6 +253,18 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         let old_epoch = mut_cluster_metadata.epoch;
 
+        let epoch_leader_cluster_rpc_url = cluster
+            .get_tx_orderer_rpc_info(&self.leader_change_message.current_leader_tx_orderer_address)
+            .and_then(|info| info.cluster_rpc_url)
+            .ok_or_else(|| {
+                tracing::error!(
+                    "cluster_rpc_url not found for epoch leader {:?} (old_epoch: {})",
+                    self.leader_change_message.current_leader_tx_orderer_address,
+                    old_epoch
+                );
+                Error::GeneralError("epoch leader cluster_rpc_url not found".into())
+            })?;
+
         // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
         if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
             tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
@@ -290,6 +302,13 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                 error
             );
         });
+
+        send_end_signal_to_epoch_leader(
+            context.clone(),
+            rollup_id.clone(),
+            old_epoch,
+            epoch_leader_cluster_rpc_url,
+        );
 
         let end_get_raw_transaction_list_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
