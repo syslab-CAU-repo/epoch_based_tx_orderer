@@ -116,8 +116,11 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         tracing::info!("get_raw_transaction_list - (before)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
         tracing::info!("get_raw_transaction_list - (before)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
+        let mut iteration_count = 0; // test code
 
         while let Ok(batch) = Batch::get(&rollup_id, current_provided_batch_number) {
+            tracing::info!("= {:?}th batch interation(Batch 번호: {:?}) =", iteration_count, current_provided_batch_number); // test code
+
             let start_transaction_order = if current_provided_batch_number == start_batch_number {
                 current_provided_transaction_order + 1
             } else {
@@ -131,6 +134,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
             current_provided_batch_number += 1;
             current_provided_transaction_order = -1;
+
+            iteration_count += 1; // test code
         }
 
         tracing::info!("get_raw_transaction_list - (after)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
