@@ -151,11 +151,13 @@ impl LivenessServiceManagerClient {
 
         tokio::spawn(async move {
             loop {
+                /*
                 tracing::info!(
                     "Initializing the liveness event listener for {:?}, {:?}..",
                     platform,
                     liveness_service_provider
                 );
+                */
 
                 if let Err(error) = event_listener_client
                     .subscriber()
@@ -269,6 +271,7 @@ pub async fn initialize_new_cluster(
         let mut retries = 5;
         while retries > 0 {
             let block_height = platform_block_height - offset;
+            /*
             tracing::info!(
                 "Sync the cluster - platform: {:?} / service provider: {:?} / cluster id: {:?} / block height: {:?}",
                 liveness_service_manager_client.platform(),
@@ -276,6 +279,7 @@ pub async fn initialize_new_cluster(
                 cluster_id,
                 block_height
             );
+            */
             match get_tx_orderer_rpc_infos(
                 &liveness_service_manager_client,
                 cluster_id,

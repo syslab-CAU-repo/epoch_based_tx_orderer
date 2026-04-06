@@ -20,6 +20,7 @@ pub async fn submit_batch_commitment(
     // let validation_service_provider: ValidationServiceProvider,
     // let validation_info: ValidationInfo,
 
+    /*
     tracing::info!(
         "Submit batch commitment - rollup_id: {:?}, batch_number: {:?},
     batch_commitment: {:?}",
@@ -27,7 +28,8 @@ pub async fn submit_batch_commitment(
         batch_number,
         batch_commitment
     );
-
+    */
+    
     match rollup.validation_info {
         // TODO: we have to manage the nonce for the register batch commitment.
         ValidationInfo::EigenLayer(_) => {
@@ -84,14 +86,17 @@ pub async fn submit_batch_commitment(
                     .map_err(|error| error.to_string())
                 {
                     Ok(transaction_hash) => {
+                        /*
                         tracing::info!(
                             "Registered batch commitment - transaction hash: {:?}",
                             transaction_hash
                         );
+                        */
+
                         break;
                     }
                     Err(error) => {
-                        tracing::warn!("{:?}", error);
+                        // tracing::warn!("{:?}", error);
                         sleep(Duration::from_secs(2)).await;
                     }
                 }

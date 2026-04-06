@@ -57,12 +57,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     let eth_tx_epoch = eth_tx.epoch.unwrap();
                     if eth_tx_epoch > cluster_metadata.epoch {
                         if cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
+                            /*
                             tracing::info!(
                                 "Received transaction for future epoch from peer; inferring self as leader for epoch. tx_epoch={:?}, local_epoch={:?}",
                                 eth_tx_epoch,
                                 cluster_metadata.epoch,
                             );
-
+                            */
+                            
                             let mut mut_cluster_metadata = ClusterMetadata::get_mut(
                                 rollup.platform,
                                 rollup.liveness_service_provider,
@@ -320,12 +322,14 @@ pub fn sync_batch_creation(
     batch_creator_signature: Signature,
 ) {
     tokio::spawn(async move {
+        /*
         tracing::info!(
             "Sync batch creation - rollup_id: {:?} / batch_number: {:?}",
             rollup_id,
             batch_number
         );
-
+        */
+        
         let other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
         if other_cluster_rpc_url_list.is_empty() {
             return;

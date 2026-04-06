@@ -51,7 +51,7 @@ impl RewardManagerClient {
             cluster_id: cluster_id.to_owned(),
         };
 
-        tracing::info!("Get rewards: {:?}", params);
+        // tracing::info!("Get rewards: {:?}", params);
 
         let get_create_task_rewards_response: GetCreateTaskRewardsResponse = self
             .inner
@@ -122,7 +122,7 @@ impl RewardManagerClient {
             cluster_id: cluster_id.to_owned(),
         };
 
-        tracing::info!("Get rewards: {:?}", params);
+        // tracing::info!("Get rewards: {:?}", params);
 
         let get_create_task_rewards_response: GetRespondTaskRewardsResponse = self
             .inner

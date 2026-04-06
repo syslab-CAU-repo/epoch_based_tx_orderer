@@ -114,12 +114,12 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         let mut current_provided_batch_number = start_batch_number;
         let mut current_provided_transaction_order = rollup_metadata.provided_transaction_order;
 
-        tracing::info!("get_raw_transaction_list - (before)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
-        tracing::info!("get_raw_transaction_list - (before)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
+        // tracing::info!("get_raw_transaction_list - (before)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
+        // tracing::info!("get_raw_transaction_list - (before)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
         let mut iteration_count = 0; // test code
 
         while let Ok(batch) = Batch::get(&rollup_id, current_provided_batch_number) {
-            tracing::info!("get_raw_transaction_list - *** {:?}th batch interation(Batch 번호: {:?}) ***", iteration_count, current_provided_batch_number); // test code
+            // tracing::info!("get_raw_transaction_list - *** {:?}th batch interation(Batch 번호: {:?}) ***", iteration_count, current_provided_batch_number); // test code
 
             let start_transaction_order = if current_provided_batch_number == start_batch_number {
                 current_provided_transaction_order + 1
@@ -138,8 +138,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             iteration_count += 1; // test code
         }
 
-        tracing::info!("get_raw_transaction_list - (after)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
-        tracing::info!("get_raw_transaction_list - (after)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
+        // tracing::info!("get_raw_transaction_list - (after)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
+        // tracing::info!("get_raw_transaction_list - (after)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
 
         if let Ok(can_provide_transaction_info) = CanProvideTransactionInfo::get(&rollup_id) {
             if let Some(can_provide_transaction_orderers) = can_provide_transaction_info
@@ -151,7 +151,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                     current_provided_transaction_order,
                 );
 
-                tracing::info!("get_raw_transaction_list - current_provided_batch_number: {:?} / valid_end_transaction_order: {:?}", current_provided_batch_number, valid_end_transaction_order); // test code
+                // tracing::info!("get_raw_transaction_list - current_provided_batch_number: {:?} / valid_end_transaction_order: {:?}", current_provided_batch_number, valid_end_transaction_order); // test code
 
                 fetch_and_append_transactions(
                     &rollup_id,
@@ -234,13 +234,15 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                 {
                     Ok(response) => {
 
-                      tracing::info!(
-                          "Get order commitment info - current leader external rpc response: {:?}",
-                          response
-                      );
+                        /*
+                        tracing::info!(
+                            "Get order commitment info - current leader external rpc response: {:?}", // test code
+                            response
+                        );
+                        */
 
-                      mut_rollup_metadata.batch_number = response.batch_number;
-                      mut_rollup_metadata.transaction_order = response.transaction_order;
+                        mut_rollup_metadata.batch_number = response.batch_number;
+                        mut_rollup_metadata.transaction_order = response.transaction_order;
                     }
                     Err(error) => {
                         tracing::error!(
@@ -278,7 +280,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
         if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
-            tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
+            // tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
             mut_cluster_metadata.epoch_leader_map.insert(old_epoch, self.leader_change_message.current_leader_tx_orderer_address.clone());
         }
         mut_cluster_metadata.epoch = old_epoch + 1;
@@ -326,10 +328,12 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .expect("Time went backwards")
             .as_nanos();
 
+        /*
         tracing::info!(
             "get_raw_transaction_list - total take time: {:?}",
             end_get_raw_transaction_list_time - start_get_raw_transaction_list_time
         );
+        */
 
         let shared_channel_infos = context.shared_channel_infos();
         let mev_searcher_infos = MevSearcherInfos::get_or(MevSearcherInfos::default).unwrap();
@@ -367,7 +371,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                         guard.recv().await
                     } => {
                         if let Some(mev_target_transaction) = maybe_mev_target_transaction {
-                            tracing::info!("Received mev target transaction: {:?}", mev_target_transaction);
+                            // tracing::info!("Received mev target transaction: {:?}", mev_target_transaction);
                             collected_clone.lock().await.push(mev_target_transaction);
                         }
                     }
@@ -381,7 +385,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         {
             let result = collected_mev_target_transaction.lock().await;
-            tracing::info!("Collected mev target transactions: {:?}", *result);
+            // tracing::info!("Collected mev target transactions: {:?}", *result); // test code
 
             for mev_target_transaction in result.iter() {
                 raw_transaction_list
@@ -410,7 +414,7 @@ pub async fn sync_leader_tx_orderer(
 ) {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
-        tracing::info!("No cluster RPC URLs available for synchronization");
+        // tracing::info!("No cluster RPC URLs available for synchronization"); // test code
         return;
     }
 
@@ -465,6 +469,7 @@ pub async fn sync_leader_tx_orderer(
                 .expect("Time went backwards")
                 .as_nanos();
 
+            /*
             tracing::info!(
                 "SyncLeaderTxOrderer - start: {:?} / end: {:?} / gap: {:?} / next_leader_tx_orderer_cluster_rpc_url: {:?}, parameter: {:?}",
                 start_sync_leader_tx_order_time,
@@ -473,6 +478,7 @@ pub async fn sync_leader_tx_orderer(
                 next_leader_tx_orderer_cluster_rpc_url,
                 parameter
             );
+            */
 
             // Fire and forget to the rest of the cluster nodes asynchronously
             let urls = other_cluster_rpc_url_list.clone();
@@ -663,6 +669,7 @@ async fn create_batches_from_epoch(
     mut_epoch_metadata.update()?;
     mut_rollup_metadata.update()?;
 
+    /*
     tracing::info!(
         "create_batches_from_epoch - rollup_id: {:?}, epochs: {:?}, batch: {}, tx_order: {}, last_batched_epoch: {:?}",
         rollup_id,
@@ -671,6 +678,7 @@ async fn create_batches_from_epoch(
         final_tx_order,
         final_last_epoch,
     );
+    */
 
     Ok(())
 }
@@ -682,12 +690,14 @@ fn get_consecutive_epochs(
     let mut result = Vec::new();
     let mut expected = last_batched_epoch + 1;
 
+    /*
     tracing::info!(
         "get_consecutive_epochs - last_batched_epoch: {}, completed_epoch: {:?}, result (before loop): {:?}",
         last_batched_epoch,
         completed_epoch,
         result,
     );
+    */
 
     for &epoch in completed_epoch {
         if epoch == expected {
@@ -698,12 +708,14 @@ fn get_consecutive_epochs(
         }
     }
 
+    /*
     tracing::info!(
         "get_consecutive_epochs - last_batched_epoch: {}, completed_epoch: {:?}, result (after loop): {:?}",
         last_batched_epoch,
         completed_epoch,
         result,
     );
+    */
 
     result
 }

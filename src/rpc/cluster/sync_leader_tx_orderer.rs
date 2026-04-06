@@ -41,10 +41,12 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
     async fn handler(self, context: AppState) -> Result<Self::Response, RpcError> {
         let rollup_id = self.leader_change_message.rollup_id.clone();
 
+        /*
         let start_sync_leader_tx_orderer_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
+        */
 
         let rollup = Rollup::get(&rollup_id).map_err(|e| {
             tracing::error!("Failed to retrieve rollup: {:?}", e);
@@ -172,6 +174,7 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
             epoch_leader_cluster_rpc_url,
         );
 
+        /*
         let end_sync_leader_tx_orderer_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -182,6 +185,7 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
             end_sync_leader_tx_orderer_time - start_sync_leader_tx_orderer_time,
             self
         );
+        */
 
         Ok(())
     }

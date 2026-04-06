@@ -15,11 +15,14 @@ use crate::{
 
 pub fn finalize_batch(context: AppState, rollup_id: &RollupId, batch_number: u64) {
     if Batch::get(rollup_id, batch_number).is_ok() {
+        /*
         tracing::info!(
             "Finalize batch - rollup id: {:?}, batch number: {:?} already exists",
             rollup_id,
             batch_number
         );
+        */
+
         return;
     }
 
@@ -56,7 +59,7 @@ async fn finalize_batch_task(
     )?;
 
     loop {
-        tracing::info!("Finalizing batch - {}, {}", rollup_id, batch_number);
+        // tracing::info!("Finalizing batch - {}, {}", rollup_id, batch_number);
 
         let result = build_batch_data(
             &context,
@@ -105,7 +108,7 @@ async fn finalize_batch_task(
             .expect("Failed to delete CanProvideTransactionInfo");
 
         Batch::put(&batch, rollup_id, batch_number)?;
-        tracing::info!("Finalize batch DONE - {}, {}", rollup_id, batch_number);
+        // tracing::info!("Finalize batch DONE - {}, {}", rollup_id, batch_number);
 
         submit_batch_commitment(context, &rollup, batch_number, &batch_commitment).await;
 
@@ -123,11 +126,14 @@ pub fn create_batch(
     leader_tx_orderer_signature: Signature,
 ) {
     if Batch::get(rollup_id, batch_number).is_ok() {
+        /*
         tracing::info!(
             "Finalize batch - rollup id: {:?}, batch number: {:?} already exists",
             rollup_id,
             batch_number
         );
+        */
+
         return;
     }
 
@@ -174,7 +180,7 @@ pub async fn create_batch_task(
     )?;
 
     loop {
-        tracing::info!("Creating batch - {}, {}", rollup_id, batch_number);
+        // tracing::info!("Creating batch - {}, {}", rollup_id, batch_number);
 
         let result = build_batch_data(
             &context,
@@ -416,6 +422,7 @@ pub async fn get_raw_transaction_info_list(
         raw_transaction_info_list.push(raw_transaction_info);
     }
 
+    /*
     tracing::info!(
         "get_raw_transaction_info_list - rollup_id: {:?} / batch_number: {:?} / max_transaction_count_per_batch: {:?} / raw_transaction_info_list_count: {:?}",
         rollup_id,
@@ -423,5 +430,7 @@ pub async fn get_raw_transaction_info_list(
         max_transaction_count_per_batch,
         raw_transaction_info_list.len()
     );
+    */
+    
     Ok(raw_transaction_info_list)
 }

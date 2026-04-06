@@ -150,7 +150,7 @@ impl RpcParameter<AppState> for SendEndSignal {
             })?;
         }
 
-        tracing::info!("SendEndSignal handler() - epoch completed: (epoch: {:?}, completed: {:?})", self.epoch, mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes)); // test code
+        // tracing::info!("SendEndSignal handler() - epoch completed: (epoch: {:?}, completed: {:?})", self.epoch, mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes)); // test code
 
         mut_cluster_metadata.update().map_err(|e| {
             tracing::error!(
@@ -208,7 +208,7 @@ pub fn sync_can_provide_epoch_info(
 
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
-        tracing::info!("No cluster RPC URLs available for synchronization");
+        // tracing::info!("No cluster RPC URLs available for synchronization");
         return;
     }
 
