@@ -30,15 +30,29 @@ impl RpcParameter<AppState> for GetDigest {
         let rollup_id = self.rollup_id;
 
         // === epoch_digest: iterate (epoch, transaction_order) ===
-        let epoch_metadata = EpochMetadata::get(&rollup_id)?;
+        let can_provide_epoch_info = match CanProvideEpochInfo::get(&rollup_id) {
+            Ok(info) => info,
+            Err(err) => {
+                tracing::warn!(
+                    "CanProvideEpochInfo not found - rollup_id: {:?}, error: {:?}. Using default.",
+                    rollup_id,
+                    err,
+                );
+                CanProvideEpochInfo::default()
+            }
+        };
 
         let mut epoch_hasher = Keccak256::new();
 
         let mut epoch_tx_count: u64 = 0;
-        for (epoch, tx_count_in_epoch) in epoch_metadata.epoch_transaction_orders.iter() {
-            for transaction_order in 0..*tx_count_in_epoch {
+        for &epoch in can_provide_epoch_info.completed_epoch.iter() {
+            let mut transaction_order = 0u64;
+            loop {
                 let (raw_epoch_tx, _is_direct_sent) =
-                    RawEpochTransactionModel::get(&rollup_id, *epoch, transaction_order)?;
+                    match RawEpochTransactionModel::get(&rollup_id, epoch, transaction_order) {
+                        Ok(entry) => entry,
+                        Err(_) => break,
+                    };
                 let tx_hash_bytes = raw_epoch_tx
                     .raw_transaction_hash()
                     .as_bytes()
@@ -47,6 +61,7 @@ impl RpcParameter<AppState> for GetDigest {
                     })?;
                 epoch_hasher.update(tx_hash_bytes);
                 epoch_tx_count += 1;
+                transaction_order += 1;
             }
         }
 
