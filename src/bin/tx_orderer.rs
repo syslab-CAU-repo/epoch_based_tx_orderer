@@ -290,6 +290,9 @@ async fn initialize_cluster_rpc_server(context: AppState) -> Result<(), Error> {
         .register_rpc_method::<cluster::GetRawTransactionList>()
         .await?;
     cluster_rpc_server
+        .register_rpc_method::<cluster::GetDigest>()
+        .await?;
+    cluster_rpc_server
         .register_rpc_method::<cluster::SetMaxGasLimit>()
         .await?;
     cluster_rpc_server
