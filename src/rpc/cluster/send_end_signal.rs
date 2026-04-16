@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use radius_sdk::signature::Address;
+use tokio::time::{sleep, Duration};
 
 use crate::rpc::{external::{sync_batch_creation, sync_raw_transaction}, prelude::*};
 use crate::task::finalize_batch;
@@ -12,6 +13,7 @@ pub struct SendEndSignal {
     pub rollup_id: RollupId,
     pub epoch: u64,
     pub sender_address: Address,
+    pub epoch_sent_transaction_count: u64,
 }
 
 impl RpcParameter<AppState> for SendEndSignal {
@@ -115,6 +117,148 @@ impl RpcParameter<AppState> for SendEndSignal {
             );
             Error::GeneralError("Sender address not found in cluster".into())
         })?;
+
+        let epoch_metadata = EpochMetadata::get(&self.rollup_id).map_err(|e| {
+            tracing::error!(
+                "Failed to retrieve epoch metadata for rollup_id: {:?}, epoch: {}, error: {:?}",
+                self.rollup_id,
+                self.epoch,
+                e
+            );
+            e
+        })?;
+
+        let sent = self.epoch_sent_transaction_count;
+        let received = epoch_metadata
+            .received_transaction_count_per_node
+            .get(&self.epoch)
+            .and_then(|v| v.get(node_index))
+            .copied()
+            .unwrap_or(0);
+
+        if received < sent {
+            let context = context.clone();
+            let cluster = cluster.clone();
+            let rollup_id = self.rollup_id.clone();
+            let cluster_id = rollup.cluster_id.clone();
+            let epoch = self.epoch;
+            let total_nodes = cluster.tx_orderer_rpc_infos.len();
+            let current_node_cluster_rpc_url = current_node_cluster_rpc_url.clone();
+            let platform = rollup.platform;
+            let liveness_service_provider = rollup.liveness_service_provider;
+
+            tokio::spawn(async move {
+                let mut attempts: u32 = 0;
+                let mut delay = Duration::from_millis(200);
+                let max_delay = Duration::from_secs(2);
+                let max_attempts: u32 = 30; // ~ up to ~1 minute worst-case with backoff
+
+                loop {
+                    attempts += 1;
+
+                    let epoch_metadata = match EpochMetadata::get(&rollup_id) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to retrieve epoch metadata while waiting to set end_signal bit. rollup_id={:?} epoch={} node_index={} error={:?}",
+                                rollup_id,
+                                epoch,
+                                node_index,
+                                e
+                            );
+                            if attempts >= max_attempts {
+                                return;
+                            }
+                            sleep(delay).await;
+                            delay = std::cmp::min(delay * 2, max_delay);
+                            continue;
+                        }
+                    };
+
+                    let received = epoch_metadata
+                        .received_transaction_count_per_node
+                        .get(&epoch)
+                        .and_then(|v| v.get(node_index))
+                        .copied()
+                        .unwrap_or(0);
+
+                    if received < sent {
+                        if attempts >= max_attempts {
+                            tracing::warn!(
+                                "Timed out waiting to set end_signal bit (received < sent). rollup_id={:?} epoch={} node_index={} received={} sent={}",
+                                rollup_id,
+                                epoch,
+                                node_index,
+                                received,
+                                sent
+                            );
+                            return;
+                        }
+                        sleep(delay).await;
+                        delay = std::cmp::min(delay * 2, max_delay);
+                        continue;
+                    }
+
+                    let mut mut_cluster_metadata = match ClusterMetadata::get_mut(
+                        platform,
+                        liveness_service_provider,
+                        &cluster_id,
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to get mutable cluster metadata while setting end_signal bit. rollup_id={:?} epoch={} node_index={} error={:?}",
+                                rollup_id,
+                                epoch,
+                                node_index,
+                                e
+                            );
+                            if attempts >= max_attempts {
+                                return;
+                            }
+                            sleep(delay).await;
+                            delay = std::cmp::min(delay * 2, max_delay);
+                            continue;
+                        }
+                    };
+
+                    mut_cluster_metadata.set_node_bit(epoch, node_index);
+
+                    if mut_cluster_metadata.all_nodes_sent_signal(epoch, total_nodes) {
+                        if let Err(e) = CanProvideEpochInfo::add_completed_epoch(&rollup_id, epoch) {
+                            tracing::error!(
+                                "Failed to add completed epoch to CanProvideEpochInfo. rollup_id={:?} epoch={} error={:?}",
+                                rollup_id,
+                                epoch,
+                                e
+                            );
+                        }
+                    }
+
+                    if let Err(e) = mut_cluster_metadata.update() {
+                        tracing::error!(
+                            "Failed to update cluster metadata while setting end_signal bit. rollup_id={:?} epoch={} error={:?}",
+                            rollup_id,
+                            epoch,
+                            e
+                        );
+                        return;
+                    }
+
+                    sync_can_provide_epoch_info(
+                        context,
+                        cluster,
+                        rollup_id,
+                        epoch,
+                        current_node_cluster_rpc_url,
+                    );
+
+                    return;
+                }
+            });
+
+            return Ok(());
+        }
 
         // end_signal_bitmap 업데이트
         let mut mut_cluster_metadata = ClusterMetadata::get_mut(

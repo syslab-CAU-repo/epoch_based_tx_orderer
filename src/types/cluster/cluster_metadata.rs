@@ -33,6 +33,10 @@ pub struct ClusterMetadata {
     // epoch별 리더 주소
     // HashMap<epoch, leader node address> 형태
     pub epoch_leader_map: HashMap<u64, Address>,
+
+    // epoch별 전송된 트랜잭션 수
+    // HashMap<epoch, sent_transaction_count> 형태
+    pub epoch_sent_transaction_count: HashMap<u64, u64>,
 }
 
 impl ClusterMetadata {
@@ -46,6 +50,7 @@ impl ClusterMetadata {
             epoch: 0, // start with epoch 0
             end_signal_bitmap: HashMap::new(),
             epoch_leader_map: HashMap::new(),
+            epoch_sent_transaction_count: HashMap::new(),
         }
     }
 
@@ -86,5 +91,10 @@ impl ClusterMetadata {
     // 특정 epoch의 비트맵 가져오기
     pub fn get_epoch_bitmap(&self, epoch: u64) -> u64 {
         self.end_signal_bitmap.get(&epoch).copied().unwrap_or(0)
+    }
+
+    pub fn increment_sent_transaction_count(&mut self, epoch: u64) {
+        let count = self.epoch_sent_transaction_count.entry(epoch).or_insert(0);
+        *count += 1;
     }
 }

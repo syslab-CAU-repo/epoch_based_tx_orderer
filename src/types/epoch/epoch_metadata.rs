@@ -10,6 +10,10 @@ use crate::types::RollupId;
 pub struct EpochMetadata {
     pub epoch_transaction_orders: BTreeMap<u64, u64>,
     pub last_batched_epoch: Option<u64>,
+
+    // epoch별 각 노드가 전송한 트랜잭션 수
+    // HashMap<epoch, Vec<sent_transaction_count>> 형태
+    pub received_transaction_count_per_node: BTreeMap<u64, Vec<u64>>,
 }
 
 impl Default for EpochMetadata {
@@ -17,6 +21,7 @@ impl Default for EpochMetadata {
         Self {
             epoch_transaction_orders: BTreeMap::new(),
             last_batched_epoch: None,
+            received_transaction_count_per_node: BTreeMap::new(),
         }
     }
 }
@@ -42,5 +47,36 @@ impl EpochMetadata {
         let current = *order;
         *order += 1;
         current
+    }
+
+    pub fn increment_received_transaction_count(&mut self, epoch: u64, node_index: usize) {
+        let counts = self
+            .received_transaction_count_per_node
+            .entry(epoch)
+            .or_insert_with(Vec::new);
+
+        if counts.len() <= node_index {
+            counts.resize(node_index + 1, 0);
+        }
+
+        counts[node_index] = counts[node_index].saturating_add(1);
+    }
+
+    pub fn update_received_transaction_count(
+        &mut self,
+        epoch: u64,
+        node_index: usize,
+        received_transaction_count: u64,
+    ) {
+        let counts = self
+            .received_transaction_count_per_node
+            .entry(epoch)
+            .or_insert_with(Vec::new);
+
+        if counts.len() <= node_index {
+            counts.resize(node_index + 1, 0);
+        }
+
+        counts[node_index] = received_transaction_count;
     }
 }

@@ -120,32 +120,7 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
                 .clone(),
         );
 
-        mut_cluster_metadata.update()?;
-
-        let mut mut_rollup_metadata = RollupMetadata::get_mut(&rollup_id)?;
-
-        mut_rollup_metadata.batch_number = self.batch_number;
-        mut_rollup_metadata.transaction_order = self.transaction_order;
-        mut_rollup_metadata.provided_batch_number = self.provided_batch_number;
-        mut_rollup_metadata.provided_transaction_order = self.provided_transaction_order;
-
-        mut_rollup_metadata.update()?;
-
-        let mut mut_epoch_metadata = EpochMetadata::get_mut(&rollup_id)?;
-        mut_epoch_metadata.epoch_transaction_orders = self.epoch_metadata.epoch_transaction_orders.clone();
-        mut_epoch_metadata.last_batched_epoch = self.epoch_metadata.last_batched_epoch;
-        mut_epoch_metadata.update().map_err(|e| {
-            tracing::error!("Failed to update epoch metadata: {:?}", e);
-            Error::GeneralError("Failed to update epoch metadata".into())
-        })?;
-
-        let cluster_metadata = ClusterMetadata::get(
-            rollup.platform,
-            rollup.liveness_service_provider,
-            &rollup.cluster_id,
-        )?;
-
-        let epoch_leader_address = cluster_metadata.epoch_leader_map.get(&self.old_epoch).ok_or_else(|| {
+        let epoch_leader_address = mut_cluster_metadata.epoch_leader_map.get(&self.old_epoch).ok_or_else(|| {
             tracing::error!(
                 "epoch_leader_address not found for old_epoch: {:?} - rollup_id: {:?}, cluster_id: {:?}",
                 self.old_epoch,
@@ -167,12 +142,42 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
                 Error::GeneralError("epoch leader cluster_rpc_url not found".into())
             })?;
 
+        let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&self.old_epoch).ok_or_else(|| {
+            tracing::error!(
+                "epoch_sent_transaction_count not found for old_epoch: {:?} - rollup_id: {:?}, cluster_id: {:?}",
+                self.old_epoch,
+                rollup_id,
+                rollup.cluster_id
+            );
+            Error::GeneralError("epoch_sent_transaction_count not found".into())
+        })?;
+
         send_end_signal_to_epoch_leader(
             context.clone(),
-            rollup_id,
+            rollup_id.clone(),
             self.old_epoch,
             epoch_leader_cluster_rpc_url,
+            *epoch_sent_transaction_count,
         );
+
+        mut_cluster_metadata.update()?;
+
+        let mut mut_rollup_metadata = RollupMetadata::get_mut(&rollup_id)?;
+
+        mut_rollup_metadata.batch_number = self.batch_number;
+        mut_rollup_metadata.transaction_order = self.transaction_order;
+        mut_rollup_metadata.provided_batch_number = self.provided_batch_number;
+        mut_rollup_metadata.provided_transaction_order = self.provided_transaction_order;
+
+        mut_rollup_metadata.update()?;
+
+        let mut mut_epoch_metadata = EpochMetadata::get_mut(&rollup_id)?;
+        mut_epoch_metadata.epoch_transaction_orders = self.epoch_metadata.epoch_transaction_orders.clone();
+        mut_epoch_metadata.last_batched_epoch = self.epoch_metadata.last_batched_epoch;
+        mut_epoch_metadata.update().map_err(|e| {
+            tracing::error!("Failed to update epoch metadata: {:?}", e);
+            Error::GeneralError("Failed to update epoch metadata".into())
+        })?;
 
         /*
         let end_sync_leader_tx_orderer_time = SystemTime::now()
@@ -196,6 +201,7 @@ pub fn send_end_signal_to_epoch_leader(
     rollup_id: RollupId,
     epoch: u64,
     epoch_leader_rpc_url: String,
+    epoch_sent_transaction_count: u64,
 ) {
     tokio::spawn(async move {
         let rollup = match Rollup::get(&rollup_id) {
@@ -221,6 +227,7 @@ pub fn send_end_signal_to_epoch_leader(
             rollup_id,
             epoch,
             sender_address: sender_address_clone,
+            epoch_sent_transaction_count,
         };
 
         context
