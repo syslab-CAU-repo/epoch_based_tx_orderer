@@ -307,22 +307,14 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         )
         .await;
 
-        let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&old_epoch).ok_or_else(|| {
-            tracing::error!(
-                "epoch_sent_transaction_count not found for old_epoch: {:?} - rollup_id: {:?}, cluster_id: {:?}",
-                old_epoch,
-                rollup_id,
-                rollup.cluster_id
-            );
-            Error::GeneralError("epoch_sent_transaction_count not found".into())
-        })?;
+        let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&old_epoch).copied().unwrap_or(0);
 
         send_end_signal_to_epoch_leader(
             context.clone(),
             rollup_id.clone(),
             old_epoch,
             epoch_leader_cluster_rpc_url,
-            *epoch_sent_transaction_count,
+            epoch_sent_transaction_count,
         );
 
         mut_cluster_metadata.update()?;
