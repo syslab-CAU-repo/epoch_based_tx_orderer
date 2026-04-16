@@ -205,6 +205,19 @@ impl RpcParameter<AppState> for SendEndSignal {
                         .copied()
                         .unwrap_or(0);
 
+                    if received > sent {
+                        tracing::error!(
+                            "Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
+                            self.rollup_id,
+                            self.epoch,
+                            self.sender_address,
+                            tx_orderer_address,
+                            received,
+                            sent
+                        );
+                        return;
+                    }
+
                     if received < sent {
                         if attempts >= max_attempts {
                             tracing::warn!(

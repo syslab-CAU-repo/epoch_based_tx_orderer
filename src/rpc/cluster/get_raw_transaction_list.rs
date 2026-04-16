@@ -573,34 +573,55 @@ async fn create_batches_from_epoch(
     cluster: Cluster,
     can_provide_epoch_info: CanProvideEpochInfo,
 ) -> Result<(), Error> {
-    let rollup = Rollup::get(rollup_id)?;
-    let cluster_metadata = ClusterMetadata::get(
-        rollup.platform,
-        rollup.liveness_service_provider,
-        &rollup.cluster_id,
-    )?;
+    let epoch_metadata = EpochMetadata::get(rollup_id)?;
 
-    let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
-    let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
+    let last_batched_epoch = epoch_metadata.last_batched_epoch;
 
-    let last_batched_epoch = mut_epoch_metadata.last_batched_epoch;
-
+    // CanProvideEpochInfo에 들어 있는 epoch 중에서 연속된 epoch까지만 가져옴
+    // 예를 들어, CanProvideEpochInfo에 들어 있는 epoch가 [1, 2, 3, 4, 5, 6, 7, 8, 10]이고 last_batched_epoch가 6이면,
+    // get_consecutive_epochs 함수는 [7, 8]을 반환함
     let epochs_to_process = get_consecutive_epochs(
         &can_provide_epoch_info.completed_epoch,
         last_batched_epoch.unwrap_or(0),
     );
 
-    if epochs_to_process.is_empty() {
+    let mut epochs_ok_to_process = Vec::new();
+
+    // 각 epoch의 트랜잭션이 RawEpochTransactionModel에 모두 존재하는지 확인
+    // 존재하는 epoch는 epochs_ok_to_process에 추가
+    // 존재하지 않는 epoch가 나오면 for 문을 종료(해당 epoch와 그 이후의 epoch는 이번 get_raw_transaction_list에서 처리하지 않음)
+    for epoch in &epochs_to_process {
+        let mut ok_to_process = true;
+        for epoch_tx_order in 0..epoch_metadata.transaction_order(*epoch) {
+            let (_raw_epoch_transaction, _is_direct_sent) =
+                match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        ok_to_process = false;
+                        break;
+                    },
+                };
+        }
+
+        if ok_to_process {
+            epochs_ok_to_process.push(*epoch);
+        } else {
+            break;
+        }
+    }
+
+    let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
+    let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
+
+    if epochs_ok_to_process.is_empty() {
         mut_epoch_metadata.update()?;
         mut_rollup_metadata.update()?;
         return Ok(());
     }
 
-    for epoch in &epochs_to_process {
-        let mut epoch_tx_order = 0u64;
-
-        loop {
-            let (raw_epoch_transaction, is_direct_sent) =
+    for epoch in &epochs_ok_to_process {
+        for epoch_tx_order in 0..mut_epoch_metadata.transaction_order(*epoch) {
+            let (raw_epoch_transaction, _is_direct_sent) =
                 match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
                     Ok(data) => data,
                     Err(_) => break,
@@ -658,16 +679,16 @@ async fn create_batches_from_epoch(
                 order_commitment.clone(),
                 true,
             );
-
-            epoch_tx_order += 1;
         }
 
         mut_epoch_metadata.last_batched_epoch = Some(*epoch);
     }
 
+    /*
     let final_batch_number = mut_rollup_metadata.batch_number;
     let final_tx_order = mut_rollup_metadata.transaction_order;
     let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
+    */
 
     mut_epoch_metadata.update()?;
     mut_rollup_metadata.update()?;
