@@ -136,7 +136,30 @@ impl RpcParameter<AppState> for SendEndSignal {
             .copied()
             .unwrap_or(0);
 
+        if received > sent {
+            tracing::error!(
+                "Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
+                self.rollup_id,
+                self.epoch,
+                self.sender_address,
+                tx_orderer_address,
+                received,
+                sent
+            );
+            return Err(Error::GeneralError("Received > sent".into()).into());
+        }
+
         if received < sent {
+            tracing::info!(
+                "Received end_signal but received < sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
+                self.rollup_id,
+                self.epoch,
+                self.sender_address,
+                tx_orderer_address,
+                received,
+                sent
+            );
+
             let context = context.clone();
             let cluster = cluster.clone();
             let rollup_id = self.rollup_id.clone();
