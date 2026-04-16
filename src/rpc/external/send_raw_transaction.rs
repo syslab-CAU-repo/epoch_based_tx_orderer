@@ -43,8 +43,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
             rollup.liveness_service_provider,
             &rollup.cluster_id,
         )
-        .map_err(|error| {
-            tracing::error!("Failed to get cluster metadata: {:?}", error);
+        .map_err(|e| {
+            if e.is_none_type() {
+                tracing::warn!("ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})", rollup.platform, rollup.liveness_service_provider, rollup.cluster_id);
+            } else {
+                tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
+            }
             Error::ClusterMetadataNotFound
         })?;
 
