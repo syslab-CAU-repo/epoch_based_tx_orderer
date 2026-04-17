@@ -585,6 +585,8 @@ async fn create_batches_from_epoch(
 ) -> Result<(), Error> {
     let epoch_metadata = EpochMetadata::get(rollup_id)?;
 
+    tracing::info!("    [create_batches_from_epoch]: epoch_metadata.epoch_transaction_orders: {:?}", epoch_metadata.epoch_transaction_orders); // test code
+
     let last_batched_epoch = epoch_metadata.last_batched_epoch;
 
     // CanProvideEpochInfo에 들어 있는 epoch 중에서 연속된 epoch까지만 가져옴
@@ -595,8 +597,8 @@ async fn create_batches_from_epoch(
         last_batched_epoch.unwrap_or(0),
     );
 
-    tracing::info!("[create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
-    tracing::info!("[create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
+    tracing::info!("    [create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
+    tracing::info!("    [create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
 
     let mut epochs_ok_to_process = Vec::new();
 
@@ -623,7 +625,7 @@ async fn create_batches_from_epoch(
         }
     }
 
-    tracing::info!("[create_batches_from_epoch]: epochs_ok_to_process: {:?}", epochs_ok_to_process); // test code
+    tracing::info!("    [create_batches_from_epoch]: epochs_ok_to_process: {:?}", epochs_ok_to_process); // test code
 
     let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
     let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
