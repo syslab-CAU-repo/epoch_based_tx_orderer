@@ -56,10 +56,12 @@ impl RpcParameter<AppState> for GetRawTransactionList {
     }
 
     async fn handler(self, context: AppState) -> Result<Self::Response, RpcError> {
+        /*
         let start_get_raw_transaction_list_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
+        */
 
         let mut raw_transaction_list = Vec::new();
 
@@ -585,6 +587,10 @@ async fn create_batches_from_epoch(
         last_batched_epoch.unwrap_or(0),
     );
 
+    tracing::info!("[create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
+    tracing::info!("[create_batches_from_epoch]: can_provide_epoch_info.completed_epoch: {:?}", can_provide_epoch_info.completed_epoch); // test code
+    tracing::info!("[create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
+
     let mut epochs_ok_to_process = Vec::new();
 
     // 각 epoch의 트랜잭션이 RawEpochTransactionModel에 모두 존재하는지 확인
@@ -610,6 +616,8 @@ async fn create_batches_from_epoch(
         }
     }
 
+    tracing::info!("[create_batches_from_epoch]: epochs_ok_to_process: {:?}", epochs_ok_to_process); // test code
+
     let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
     let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
 
@@ -624,7 +632,7 @@ async fn create_batches_from_epoch(
             let (raw_epoch_transaction, _is_direct_sent) =
                 match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
                     Ok(data) => data,
-                    Err(_) => break,
+                    Err(e) => return Err(e.into()),
                 };
 
             let batch_number = mut_rollup_metadata.batch_number;
