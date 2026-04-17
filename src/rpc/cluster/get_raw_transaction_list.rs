@@ -63,6 +63,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .as_nanos();
         */
 
+        tracing::info!("[get_raw_transaction_list]: start"); // test code
+
         let mut raw_transaction_list = Vec::new();
 
         let rollup_id = self.leader_change_message.rollup_id.clone();
@@ -268,6 +270,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         let old_epoch = mut_cluster_metadata.epoch;
 
+        tracing::info!("[get_raw_transaction_list]: old_epoch: {:?}", old_epoch); // test code
+
         let epoch_leader_cluster_rpc_url = cluster
             .get_tx_orderer_rpc_info(&self.leader_change_message.current_leader_tx_orderer_address)
             .and_then(|info| info.cluster_rpc_url)
@@ -288,6 +292,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         mut_cluster_metadata.epoch = old_epoch + 1;
 
         let new_epoch = mut_cluster_metadata.epoch;
+
+        tracing::info!("[get_raw_transaction_list]: new_epoch: {:?}", new_epoch); // test code
 
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
@@ -397,6 +403,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                     .extend(mev_target_transaction.backrunning_transaction_list.clone());
             }
         }
+
+        tracing::info!("[get_raw_transaction_list]: end"); // test code
 
         Ok(GetRawTransactionListResponse {
             raw_transaction_list,
@@ -588,7 +596,6 @@ async fn create_batches_from_epoch(
     );
 
     tracing::info!("[create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
-    tracing::info!("[create_batches_from_epoch]: can_provide_epoch_info.completed_epoch: {:?}", can_provide_epoch_info.completed_epoch); // test code
     tracing::info!("[create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
 
     let mut epochs_ok_to_process = Vec::new();
