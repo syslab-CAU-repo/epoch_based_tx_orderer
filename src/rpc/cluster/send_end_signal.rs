@@ -260,7 +260,9 @@ impl RpcParameter<AppState> for SendEndSignal {
 
                     mut_cluster_metadata.set_node_bit(epoch, node_index);
 
-                    if mut_cluster_metadata.all_nodes_sent_signal(epoch, total_nodes) {
+                    let all_nodes_sent_signal = mut_cluster_metadata.all_nodes_sent_signal(epoch, total_nodes);
+
+                    if all_nodes_sent_signal {
                         if let Err(e) = CanProvideEpochInfo::add_completed_epoch(&rollup_id, epoch) {
                             tracing::error!(
                                 "Failed to add completed epoch to CanProvideEpochInfo. rollup_id={:?} epoch={} error={:?}",
@@ -281,13 +283,18 @@ impl RpcParameter<AppState> for SendEndSignal {
                         return;
                     }
 
-                    sync_can_provide_epoch_info(
-                        context,
-                        cluster,
-                        rollup_id,
-                        epoch,
-                        current_node_cluster_rpc_url,
-                    );
+                    if all_nodes_sent_signal {   
+                        let transaction_order = epoch_metadata.transaction_order(epoch);
+
+                        sync_can_provide_epoch_info(
+                            context,
+                            cluster,
+                            rollup_id,
+                            epoch,
+                            transaction_order,
+                            current_node_cluster_rpc_url,
+                        );
+                    }
 
                     return;
                 }
@@ -316,9 +323,9 @@ impl RpcParameter<AppState> for SendEndSignal {
 
         // 모든 노드가 시그널을 보냈는지 확인
         let total_nodes = cluster.tx_orderer_rpc_infos.len();
-        let mut epoch_completed = false;
-        if mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes) {
-            epoch_completed = true;
+        let all_nodes_sent_signal = mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes);
+
+        if all_nodes_sent_signal {
             CanProvideEpochInfo::add_completed_epoch(&self.rollup_id, self.epoch).map_err(|e| {
                 tracing::error!(
                     "Failed to add completed epoch to CanProvideEpochInfo. rollup_id: {:?}, epoch: {}, error: {:?}",
@@ -343,13 +350,17 @@ impl RpcParameter<AppState> for SendEndSignal {
             e
         })?;
 
-        sync_can_provide_epoch_info(
-            context.clone(),
-            cluster.clone(),
-            self.rollup_id.clone(),
-            self.epoch,
-            current_node_cluster_rpc_url,
-        );
+        if all_nodes_sent_signal {
+            let transaction_order = epoch_metadata.transaction_order(self.epoch);
+            sync_can_provide_epoch_info(
+                context.clone(),
+                cluster.clone(),
+                self.rollup_id.clone(),
+                self.epoch,
+                transaction_order,
+                current_node_cluster_rpc_url,
+            );
+        }
 
         /*
         if epoch_completed {
@@ -382,6 +393,7 @@ pub fn sync_can_provide_epoch_info(
     cluster: Cluster,
     rollup_id: RollupId,
     epoch: u64,
+    transaction_order: u64,
     current_node_cluster_rpc_url: String,
 ) {
     // tracing::info!("=== 🔄🕐 sync_can_provide_epoch_info 시작(epoch: {:?}) 🕐🔄 ===", epoch); // test code
@@ -399,6 +411,7 @@ pub fn sync_can_provide_epoch_info(
 
     let parameter = SyncCanProvideEpochInfo {
         epoch,
+        transaction_order,
         rollup_id,
     };
 

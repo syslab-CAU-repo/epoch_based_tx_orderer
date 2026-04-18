@@ -9,32 +9,6 @@ use super::RollupId;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Model)]
 #[kvstore(key(rollup_id: &RollupId))]
-pub struct CanProvideEpochInfo {
-    pub completed_epoch: BTreeSet<u64>,  
-}
-
-impl Default for CanProvideEpochInfo {
-    fn default() -> Self {
-        Self {
-            completed_epoch: BTreeSet::new(),
-        }
-    }
-}
-
-impl CanProvideEpochInfo {
-    pub fn add_completed_epoch(
-        rollup_id: &RollupId,
-        epoch: u64,
-    ) -> Result<(), Error> {
-        let mut can_provide_epoch_info = Self::get_mut_or(rollup_id, Self::default)?;
-        can_provide_epoch_info.completed_epoch.insert(epoch);
-        can_provide_epoch_info.update()?;
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Model)]
-#[kvstore(key(rollup_id: &RollupId))]
 pub struct CanProvideTransactionInfo {
     pub can_provide_transaction_orders_per_batch: HashMap<u64, BTreeSet<u64>>,
 }

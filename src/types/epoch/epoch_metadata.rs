@@ -1,9 +1,35 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeSet, BTreeMap};
 
 use radius_sdk::kvstore::Model;
 use serde::{Deserialize, Serialize};
 
-use crate::types::RollupId;
+use crate::{error::Error, types::RollupId};
+
+#[derive(Clone, Debug, Deserialize, Serialize, Model)]
+#[kvstore(key(rollup_id: &RollupId))]
+pub struct CanProvideEpochInfo {
+    pub completed_epoch: BTreeSet<u64>,  
+}
+
+impl Default for CanProvideEpochInfo {
+    fn default() -> Self {
+        Self {
+            completed_epoch: BTreeSet::new(),
+        }
+    }
+}
+
+impl CanProvideEpochInfo {
+    pub fn add_completed_epoch(
+        rollup_id: &RollupId,
+        epoch: u64,
+    ) -> Result<(), Error> {
+        let mut can_provide_epoch_info = Self::get_mut_or(rollup_id, Self::default)?;
+        can_provide_epoch_info.completed_epoch.insert(epoch);
+        can_provide_epoch_info.update()?;
+        Ok(())
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, Model)]
 #[kvstore(key(rollup_id: &RollupId))]

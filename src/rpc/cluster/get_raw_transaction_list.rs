@@ -63,6 +63,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .as_nanos();
         */
 
+        tracing::info!("================================="); // test code
         tracing::info!("[get_raw_transaction_list]: start"); // test code
 
         let mut raw_transaction_list = Vec::new();
@@ -405,6 +406,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         }
 
         tracing::info!("[get_raw_transaction_list]: end"); // test code
+        tracing::info!("================================="); // test code
 
         Ok(GetRawTransactionListResponse {
             raw_transaction_list,

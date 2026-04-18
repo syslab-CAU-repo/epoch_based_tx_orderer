@@ -163,14 +163,6 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
 
         mut_rollup_metadata.update()?;
 
-        let mut mut_epoch_metadata = EpochMetadata::get_mut(&rollup_id)?;
-        mut_epoch_metadata.epoch_transaction_orders = self.epoch_metadata.epoch_transaction_orders.clone();
-        mut_epoch_metadata.last_batched_epoch = self.epoch_metadata.last_batched_epoch;
-        mut_epoch_metadata.update().map_err(|e| {
-            tracing::error!("Failed to update epoch metadata: {:?}", e);
-            Error::GeneralError("Failed to update epoch metadata".into())
-        })?;
-
         /*
         let end_sync_leader_tx_orderer_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
