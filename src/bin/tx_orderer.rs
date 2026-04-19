@@ -342,6 +342,10 @@ async fn initialize_cluster_rpc_server(context: AppState) -> Result<(), Error> {
         .register_rpc_method::<cluster::SyncEpochRawTransaction>()
         .await?;
 
+    cluster_rpc_server
+        .register_rpc_method::<cluster::SyncEpochMetadata>()
+        .await?;
+
     let cluster_handle = cluster_rpc_server.init(cluster_rpc_url.clone()).await?;
 
     tracing::info!(

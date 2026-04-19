@@ -718,7 +718,7 @@ async fn create_batches_from_epoch(
     let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
     */
 
-    sync_epoch_metadata(
+    let _ = sync_epoch_metadata(
         context.clone(),
         rollup_id.clone(),
         cluster.clone(),
