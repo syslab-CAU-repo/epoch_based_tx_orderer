@@ -10,7 +10,7 @@ use tokio::{sync::mpsc::UnboundedReceiver, time::Instant};
 use super::{send_end_signal_to_epoch_leader, SyncLeaderTxOrderer};
 use crate::{
     rpc::{
-        cluster::{GetOrderCommitmentInfo, GetOrderCommitmentInfoResponse},
+        cluster::{GetOrderCommitmentInfo, GetOrderCommitmentInfoResponse, SyncEpochMetadata},
         external::sync_raw_transaction,
         prelude::*,
     },
@@ -96,6 +96,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             &rollup_id,
             cluster.clone(),
             can_provide_epoch_info,
+            self.leader_change_message.next_leader_tx_orderer_address.clone(),
         ).await {
             tracing::error!("Failed to create batches from epoch - rollup_id: {:?}, error: {:?}", rollup_id, e);
         }
@@ -121,7 +122,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         // tracing::info!("get_raw_transaction_list - (before)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
         // tracing::info!("get_raw_transaction_list - (before)current_provided_transaction_order: {:?}", current_provided_transaction_order); // test code
-        let mut iteration_count = 0; // test code
+        // let mut iteration_count = 0; // test code
 
         while let Ok(batch) = Batch::get(&rollup_id, current_provided_batch_number) {
             // tracing::info!("get_raw_transaction_list - *** {:?}th batch interation(Batch 번호: {:?}) ***", iteration_count, current_provided_batch_number); // test code
@@ -140,7 +141,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             current_provided_batch_number += 1;
             current_provided_transaction_order = -1;
 
-            iteration_count += 1; // test code
+            // iteration_count += 1; // test code
         }
 
         // tracing::info!("get_raw_transaction_list - (after)current_provided_batch_number: {:?}", current_provided_batch_number); // test code
@@ -335,12 +336,12 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             );
         });
 
+        /*
         let end_get_raw_transaction_list_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
 
-        /*
         tracing::info!(
             "get_raw_transaction_list - total take time: {:?}",
             end_get_raw_transaction_list_time - start_get_raw_transaction_list_time
@@ -463,10 +464,12 @@ pub async fn sync_leader_tx_orderer(
 
         if next_leader_tx_orderer_rpc_info.tx_orderer_address != current_leader_tx_orderer_address {
             // Directly request the next leader tx_orderer to sync
+            /*
             let start_sync_leader_tx_order_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_nanos();
+            */
 
             let _result: Result<(), radius_sdk::json_rpc::client::RpcClientError> = context
                 .rpc_client()
@@ -479,12 +482,12 @@ pub async fn sync_leader_tx_orderer(
                 )
                 .await;
 
+            /*
             let end_sync_leader_tx_order_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_nanos();
 
-            /*
             tracing::info!(
                 "SyncLeaderTxOrderer - start: {:?} / end: {:?} / gap: {:?} / next_leader_tx_orderer_cluster_rpc_url: {:?}, parameter: {:?}",
                 start_sync_leader_tx_order_time,
@@ -579,11 +582,17 @@ fn fetch_and_append_transactions(
     Ok(())
 }
 
+// 1. 함수 목적 : current_leader가 현 시점에 처리 완료된 epoch까지 가져와서 batch 기반으로 다시 ordering 하는 함수
+// 2. 입력값 : can_provide_epoch_info, next_leader_tx_orderer_address
+// 3. 출력값 : 없음
+// 4. side effects : get_raw_transaction_list 요청을 받는 노드가 current_leader라고 가정하고 만들었음. 
+//      current_leader가 아닌 노드가 get_raw_transaction_list 요청을 받아 이 함수가 실행되면 결과 장담 X
 async fn create_batches_from_epoch(
     context: AppState,
     rollup_id: &RollupId,
     cluster: Cluster,
     can_provide_epoch_info: CanProvideEpochInfo,
+    next_leader_tx_orderer_address: Address,
 ) -> Result<(), Error> {
     let epoch_metadata = EpochMetadata::get(rollup_id)?;
 
@@ -709,6 +718,14 @@ async fn create_batches_from_epoch(
     let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
     */
 
+    sync_epoch_metadata(
+        context.clone(),
+        rollup_id.clone(),
+        cluster.clone(),
+        mut_epoch_metadata.last_batched_epoch.unwrap(),
+        next_leader_tx_orderer_address.clone(),
+    );
+
     mut_epoch_metadata.update()?;
     mut_rollup_metadata.update()?;
 
@@ -761,4 +778,68 @@ fn get_consecutive_epochs(
     */
 
     result
+}
+
+// 1. 함수 목적: current_leader가 epoch-based에서 batch-based로 다시 오더링한 후, 갱신된 last_batched_epoch를 다른 노드들에게 전파하는 함수
+// 2. 입력값: last_batched_epoch, next_leader_tx_orderer_address
+// 3. 출력값: 없음
+// 4. side effects: current_leader가 아닌 노드가 get_raw_transaction_list 요청을 받아 이 함수가 실행되면 결과 장담 X
+pub async fn sync_epoch_metadata(
+    context: AppState,
+    rollup_id: RollupId,
+    cluster: Cluster,
+    last_batched_epoch: u64,
+    next_leader_tx_orderer_address: Address,
+) {
+    let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
+    if other_cluster_rpc_url_list.is_empty() {
+        tracing::info!("        [sync_epoch_metadata]: No cluster RPC URLs available for synchronization");
+        return;
+    }
+
+    if let Some(next_leader_tx_orderer_rpc_info) =
+        cluster.get_tx_orderer_rpc_info(&next_leader_tx_orderer_address)
+    {
+        let next_leader_tx_orderer_cluster_rpc_url = next_leader_tx_orderer_rpc_info
+                .cluster_rpc_url
+                .clone()
+                .unwrap();
+
+        // Filter out the next leader's cluster URL from the list
+        other_cluster_rpc_url_list = other_cluster_rpc_url_list
+            .into_iter()
+            .filter(|rpc_url| rpc_url != &next_leader_tx_orderer_cluster_rpc_url)
+            .collect();
+
+        let parameter = SyncEpochMetadata {
+            last_batched_epoch: last_batched_epoch,
+            rollup_id: rollup_id,
+        };
+
+        let _result: Result<(), radius_sdk::json_rpc::client::RpcClientError> = context
+                .rpc_client()
+                .request_with_priority(
+                    next_leader_tx_orderer_cluster_rpc_url.clone(),
+                    SyncEpochMetadata::method(),
+                    &parameter,
+                    Id::Null,
+                    Priority::High,
+                )
+                .await;
+
+        // Fire and forget to the rest of the cluster nodes asynchronously
+        let urls = other_cluster_rpc_url_list.clone();
+
+        tokio::spawn(async move {
+            let _ = context
+                .rpc_client()
+                .fire_and_forget_multicast(
+                    urls,
+                    SyncEpochMetadata::method(),
+                    &parameter,
+                    Id::Null,
+                )
+                .await;
+        });
+    }
 }
