@@ -718,16 +718,19 @@ async fn create_batches_from_epoch(
     let final_last_epoch = mut_epoch_metadata.last_batched_epoch;
     */
 
-    let _ = sync_epoch_metadata(
-        context.clone(),
-        rollup_id.clone(),
-        cluster.clone(),
-        mut_epoch_metadata.last_batched_epoch.unwrap(),
-        next_leader_tx_orderer_address.clone(),
-    );
+    let last_batched_epoch_after_update = mut_epoch_metadata.last_batched_epoch.unwrap();
 
     mut_epoch_metadata.update()?;
     mut_rollup_metadata.update()?;
+
+    sync_epoch_metadata(
+        context.clone(),
+        rollup_id.clone(),
+        cluster.clone(),
+        last_batched_epoch_after_update,
+        next_leader_tx_orderer_address.clone(),
+    )
+    .await?;
 
     /*
     tracing::info!(
