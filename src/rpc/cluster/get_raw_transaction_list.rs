@@ -790,20 +790,24 @@ pub async fn sync_epoch_metadata(
     cluster: Cluster,
     last_batched_epoch: u64,
     next_leader_tx_orderer_address: Address,
-) {
+) -> Result<(), Error> {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
         tracing::info!("        [sync_epoch_metadata]: No cluster RPC URLs available for synchronization");
-        return;
+        return Err(Error::GeneralError("No cluster RPC URLs available for synchronization".into()));
     }
 
     if let Some(next_leader_tx_orderer_rpc_info) =
         cluster.get_tx_orderer_rpc_info(&next_leader_tx_orderer_address)
     {
+        tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_rpc_info found"); // test code
+
         let next_leader_tx_orderer_cluster_rpc_url = next_leader_tx_orderer_rpc_info
                 .cluster_rpc_url
                 .clone()
                 .unwrap();
+
+        tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_cluster_rpc_url: {:?}", next_leader_tx_orderer_cluster_rpc_url); // test code
 
         // Filter out the next leader's cluster URL from the list
         other_cluster_rpc_url_list = other_cluster_rpc_url_list
@@ -811,27 +815,59 @@ pub async fn sync_epoch_metadata(
             .filter(|rpc_url| rpc_url != &next_leader_tx_orderer_cluster_rpc_url)
             .collect();
 
+        tracing::info!("        [sync_epoch_metadata]: other_cluster_rpc_url_list: {:?}", other_cluster_rpc_url_list); // test code
+
         let parameter = SyncEpochMetadata {
-            last_batched_epoch: last_batched_epoch,
-            rollup_id: rollup_id,
+            last_batched_epoch,
+            rollup_id,
         };
 
-        let _result: Result<(), radius_sdk::json_rpc::client::RpcClientError> = context
-                .rpc_client()
-                .request_with_priority(
-                    next_leader_tx_orderer_cluster_rpc_url.clone(),
-                    SyncEpochMetadata::method(),
-                    &parameter,
-                    Id::Null,
-                    Priority::High,
-                )
-                .await;
+        tracing::info!(
+            "        [sync_epoch_metadata]: sending to next_leader url={} method={} rollup_id={:?} last_batched_epoch={}",
+            next_leader_tx_orderer_cluster_rpc_url,
+            SyncEpochMetadata::method(),
+            parameter.rollup_id,
+            parameter.last_batched_epoch,
+        );
+
+        let next_leader_result = context
+            .rpc_client()
+            .request_with_priority(
+                next_leader_tx_orderer_cluster_rpc_url.clone(),
+                SyncEpochMetadata::method(),
+                &parameter,
+                Id::Null,
+                Priority::High,
+            )
+            .await;
+
+        match &next_leader_result {
+            Ok(()) => tracing::info!(
+                "        [sync_epoch_metadata]: next_leader request finished ok url={}",
+                next_leader_tx_orderer_cluster_rpc_url
+            ),
+            Err(e) => tracing::warn!(
+                "        [sync_epoch_metadata]: next_leader request failed url={} error={:?}",
+                next_leader_tx_orderer_cluster_rpc_url,
+                e
+            ),
+        }
 
         // Fire and forget to the rest of the cluster nodes asynchronously
         let urls = other_cluster_rpc_url_list.clone();
+        let multicast_count = urls.len();
 
         tokio::spawn(async move {
-            let _ = context
+            tracing::info!(
+                "        [sync_epoch_metadata]: sending multicast method={} count={} urls={:?} rollup_id={:?} last_batched_epoch={}",
+                SyncEpochMetadata::method(),
+                multicast_count,
+                urls,
+                parameter.rollup_id,
+                parameter.last_batched_epoch,
+            );
+
+            context
                 .rpc_client()
                 .fire_and_forget_multicast(
                     urls,
@@ -840,6 +876,13 @@ pub async fn sync_epoch_metadata(
                     Id::Null,
                 )
                 .await;
+
+            tracing::info!(
+                "        [sync_epoch_metadata]: multicast fire_and_forget dispatch completed count={} (per-URL RPC results are not awaited)",
+                multicast_count
+            );
         });
     }
+
+    Ok(())
 }
