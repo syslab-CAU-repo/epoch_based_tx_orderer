@@ -864,6 +864,7 @@ pub async fn sync_epoch_metadata(
         let multicast_count = urls.len();
 
         tokio::spawn(async move {
+            /*
             tracing::info!(
                 "        [sync_epoch_metadata]: sending multicast method={} count={} urls={:?} rollup_id={:?} last_batched_epoch={}",
                 SyncEpochMetadata::method(),
@@ -872,6 +873,7 @@ pub async fn sync_epoch_metadata(
                 parameter.rollup_id,
                 parameter.last_batched_epoch,
             );
+            */
 
             context
                 .rpc_client()
