@@ -63,8 +63,10 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .as_nanos();
         */
 
+        /*
         tracing::info!("================================="); // test code
         tracing::info!("[get_raw_transaction_list]: start"); // test code
+        */
 
         let mut raw_transaction_list = Vec::new();
 
@@ -272,7 +274,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         let old_epoch = mut_cluster_metadata.epoch;
 
-        tracing::info!("[get_raw_transaction_list]: old_epoch: {:?}", old_epoch); // test code
+        // tracing::info!("[get_raw_transaction_list]: old_epoch: {:?}", old_epoch); // test code
 
         let epoch_leader_cluster_rpc_url = cluster
             .get_tx_orderer_rpc_info(&self.leader_change_message.current_leader_tx_orderer_address)
@@ -295,7 +297,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         let new_epoch = mut_cluster_metadata.epoch;
 
-        tracing::info!("[get_raw_transaction_list]: new_epoch: {:?}", new_epoch); // test code
+        // tracing::info!("[get_raw_transaction_list]: new_epoch: {:?}", new_epoch); // test code
 
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
@@ -406,8 +408,10 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             }
         }
 
+        /*
         tracing::info!("[get_raw_transaction_list]: end"); // test code
         tracing::info!("================================="); // test code
+        */
 
         Ok(GetRawTransactionListResponse {
             raw_transaction_list,
@@ -596,7 +600,7 @@ async fn create_batches_from_epoch(
 ) -> Result<(), Error> {
     let epoch_metadata = EpochMetadata::get(rollup_id)?;
 
-    tracing::info!("    [create_batches_from_epoch]: epoch_metadata.epoch_transaction_orders: {:?}", epoch_metadata.epoch_transaction_orders); // test code
+    // tracing::info!("    [create_batches_from_epoch]: epoch_metadata.epoch_transaction_orders: {:?}", epoch_metadata.epoch_transaction_orders); // test code
 
     let last_batched_epoch = epoch_metadata.last_batched_epoch;
 
@@ -608,8 +612,8 @@ async fn create_batches_from_epoch(
         last_batched_epoch.unwrap_or(0),
     );
 
-    tracing::info!("    [create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
-    tracing::info!("    [create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
+    // tracing::info!("    [create_batches_from_epoch]: last_batched_epoch: {:?}", last_batched_epoch); // test code
+    // tracing::info!("    [create_batches_from_epoch]: epochs_to_process: {:?}", epochs_to_process); // test code
 
     let mut epochs_ok_to_process = Vec::new();
 
@@ -636,7 +640,7 @@ async fn create_batches_from_epoch(
         }
     }
 
-    tracing::info!("    [create_batches_from_epoch]: epochs_ok_to_process: {:?}", epochs_ok_to_process); // test code
+    // tracing::info!("    [create_batches_from_epoch]: epochs_ok_to_process: {:?}", epochs_ok_to_process); // test code
 
     let mut mut_epoch_metadata = EpochMetadata::get_mut(rollup_id)?;
     let mut mut_rollup_metadata = RollupMetadata::get_mut(rollup_id)?;
@@ -796,21 +800,21 @@ pub async fn sync_epoch_metadata(
 ) -> Result<(), Error> {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
-        tracing::info!("        [sync_epoch_metadata]: No cluster RPC URLs available for synchronization");
+        // tracing::info!("        [sync_epoch_metadata]: No cluster RPC URLs available for synchronization");
         return Err(Error::GeneralError("No cluster RPC URLs available for synchronization".into()));
     }
 
     if let Some(next_leader_tx_orderer_rpc_info) =
         cluster.get_tx_orderer_rpc_info(&next_leader_tx_orderer_address)
     {
-        tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_rpc_info found"); // test code
+        // tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_rpc_info found"); // test code
 
         let next_leader_tx_orderer_cluster_rpc_url = next_leader_tx_orderer_rpc_info
                 .cluster_rpc_url
                 .clone()
                 .unwrap();
 
-        tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_cluster_rpc_url: {:?}", next_leader_tx_orderer_cluster_rpc_url); // test code
+        // tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_cluster_rpc_url: {:?}", next_leader_tx_orderer_cluster_rpc_url); // test code
 
         // Filter out the next leader's cluster URL from the list
         other_cluster_rpc_url_list = other_cluster_rpc_url_list
@@ -818,13 +822,14 @@ pub async fn sync_epoch_metadata(
             .filter(|rpc_url| rpc_url != &next_leader_tx_orderer_cluster_rpc_url)
             .collect();
 
-        tracing::info!("        [sync_epoch_metadata]: other_cluster_rpc_url_list: {:?}", other_cluster_rpc_url_list); // test code
+        // tracing::info!("        [sync_epoch_metadata]: other_cluster_rpc_url_list: {:?}", other_cluster_rpc_url_list); // test code
 
         let parameter = SyncEpochMetadata {
             last_batched_epoch,
             rollup_id,
         };
 
+        /*
         tracing::info!(
             "        [sync_epoch_metadata]: sending to next_leader url={} method={} rollup_id={:?} last_batched_epoch={}",
             next_leader_tx_orderer_cluster_rpc_url,
@@ -832,6 +837,7 @@ pub async fn sync_epoch_metadata(
             parameter.rollup_id,
             parameter.last_batched_epoch,
         );
+        */
 
         let next_leader_result = context
             .rpc_client()
@@ -845,15 +851,12 @@ pub async fn sync_epoch_metadata(
             .await;
 
         match &next_leader_result {
-            Ok(()) => tracing::info!(
-                "        [sync_epoch_metadata]: next_leader request finished ok url={}",
-                next_leader_tx_orderer_cluster_rpc_url
-            ),
-            Err(e) => tracing::warn!(
-                "        [sync_epoch_metadata]: next_leader request failed url={} error={:?}",
-                next_leader_tx_orderer_cluster_rpc_url,
-                e
-            ),
+            Ok(()) => {
+                // tracing::info!("        [sync_epoch_metadata]: next_leader request finished ok url={}", next_leader_tx_orderer_cluster_rpc_url)
+            },
+            Err(e) => {
+                // tracing::warn!("        [sync_epoch_metadata]: next_leader request failed url={} error={:?}", next_leader_tx_orderer_cluster_rpc_url, e)
+            },
         }
 
         // Fire and forget to the rest of the cluster nodes asynchronously
@@ -880,10 +883,12 @@ pub async fn sync_epoch_metadata(
                 )
                 .await;
 
+            /*
             tracing::info!(
                 "        [sync_epoch_metadata]: multicast fire_and_forget dispatch completed count={} (per-URL RPC results are not awaited)",
                 multicast_count
             );
+            */
         });
     }
 

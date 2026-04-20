@@ -138,7 +138,7 @@ impl RpcParameter<AppState> for SendEndSignal {
 
         if received > sent {
             tracing::error!(
-                "Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
+                "SOMETHING WENT WRONG: Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
                 self.rollup_id,
                 self.epoch,
                 self.sender_address,
@@ -150,6 +150,7 @@ impl RpcParameter<AppState> for SendEndSignal {
         }
 
         if received < sent {
+            /*
             tracing::info!(
                 "Received end_signal but received < sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
                 self.rollup_id,
@@ -159,6 +160,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                 received,
                 sent
             );
+            */
 
             let context = context.clone();
             let cluster = cluster.clone();
@@ -207,7 +209,7 @@ impl RpcParameter<AppState> for SendEndSignal {
 
                     if received > sent {
                         tracing::error!(
-                            "Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
+                            "SOMETHING WENT WRONG: Received end_signal but received > sent. rollup_id: {:?}, epoch: {}, sender_address: {:?}, current_address: {:?}, received: {}, sent: {}",
                             self.rollup_id,
                             self.epoch,
                             self.sender_address,
