@@ -206,6 +206,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
             let (_, pre_merkle_path) = merkle_tree.add_data(transaction_hash.as_ref()).await;
             drop(merkle_tree);
 
+            // rollup.order_commitment_type 뭔지 출력하는 코드
+            // tracing::info!("rollup.order_commitment_type: {:?}", rollup.order_commitment_type); // 결과: Sign
+
             let order_commitment = issue_order_commitment(
                 context.clone(),
                 rollup.platform,
@@ -220,7 +223,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             order_commitment.put(&self.rollup_id, epoch, transaction_order)?;
 
-            
             sync_epoch_raw_transaction(
                 context.clone(),
                 cluster,

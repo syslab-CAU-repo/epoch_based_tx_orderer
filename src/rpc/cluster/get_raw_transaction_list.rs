@@ -319,6 +319,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         )
         .await;
 
+        // (get 요청을 현재 epoch leader가 받았을 시) epoch_sent_transaction_count 는 non-leader 노드에서만 증가되므로, 이 코드에서는 항상 0일 것임.
+        // TODO: 이 코드 지우기
         let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&old_epoch).copied().unwrap_or(0);
 
         send_end_signal_to_epoch_leader(

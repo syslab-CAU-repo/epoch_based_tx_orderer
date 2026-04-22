@@ -1,6 +1,7 @@
 mod batch;
 mod cluster;
 mod config;
+mod end_signal;
 mod epoch;
 mod liveness;
 mod merkle;
@@ -15,6 +16,7 @@ mod version;
 pub use batch::*;
 pub use cluster::*;
 pub use config::*;
+pub use end_signal::*;
 pub use epoch::*;
 pub use liveness::*;
 pub use merkle::*;

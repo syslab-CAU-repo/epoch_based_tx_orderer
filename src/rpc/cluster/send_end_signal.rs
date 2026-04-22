@@ -237,7 +237,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                         continue;
                     }
 
-                    let mut mut_cluster_metadata = match ClusterMetadata::get_mut(
+                    let mut mut_end_signal_metadata = match EndSignalMetadata::get_mut(
                         platform,
                         liveness_service_provider,
                         &cluster_id,
@@ -260,9 +260,9 @@ impl RpcParameter<AppState> for SendEndSignal {
                         }
                     };
 
-                    mut_cluster_metadata.set_node_bit(epoch, node_index);
+                    mut_end_signal_metadata.set_node_bit(epoch, node_index);
 
-                    let all_nodes_sent_signal = mut_cluster_metadata.all_nodes_sent_signal(epoch, total_nodes);
+                    let all_nodes_sent_signal = mut_end_signal_metadata.all_nodes_sent_signal(epoch, total_nodes);
 
                     if all_nodes_sent_signal {
                         if let Err(e) = CanProvideEpochInfo::add_completed_epoch(&rollup_id, epoch) {
@@ -275,7 +275,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                         }
                     }
 
-                    if let Err(e) = mut_cluster_metadata.update() {
+                    if let Err(e) = mut_end_signal_metadata.update() {
                         tracing::error!(
                             "Failed to update cluster metadata while setting end_signal bit. rollup_id={:?} epoch={} error={:?}",
                             rollup_id,
@@ -306,7 +306,7 @@ impl RpcParameter<AppState> for SendEndSignal {
         }
 
         // end_signal_bitmap 업데이트
-        let mut mut_cluster_metadata = ClusterMetadata::get_mut(
+        let mut mut_end_signal_metadata = EndSignalMetadata::get_mut(
             rollup.platform,
             rollup.liveness_service_provider,
             &rollup.cluster_id,
@@ -321,11 +321,11 @@ impl RpcParameter<AppState> for SendEndSignal {
         })?;
 
         // 노드 인덱스에 대응되는 비트 설정
-        mut_cluster_metadata.set_node_bit(self.epoch, node_index);
+        mut_end_signal_metadata.set_node_bit(self.epoch, node_index);
 
         // 모든 노드가 시그널을 보냈는지 확인
         let total_nodes = cluster.tx_orderer_rpc_infos.len();
-        let all_nodes_sent_signal = mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes);
+        let all_nodes_sent_signal = mut_end_signal_metadata.all_nodes_sent_signal(self.epoch, total_nodes);
 
         if all_nodes_sent_signal {
             CanProvideEpochInfo::add_completed_epoch(&self.rollup_id, self.epoch).map_err(|e| {
@@ -341,9 +341,9 @@ impl RpcParameter<AppState> for SendEndSignal {
 
         // tracing::info!("SendEndSignal handler() - epoch completed: (epoch: {:?}, completed: {:?})", self.epoch, mut_cluster_metadata.all_nodes_sent_signal(self.epoch, total_nodes)); // test code
 
-        mut_cluster_metadata.update().map_err(|e| {
+        mut_end_signal_metadata.update().map_err(|e| {
             tracing::error!(
-                "Failed to update cluster metadata. rollup_id: {:?}, cluster_id: {:?}, epoch: {}, error: {:?}",
+                "Failed to update end signal metadata. rollup_id: {:?}, cluster_id: {:?}, epoch: {}, error: {:?}",
                 self.rollup_id,
                 rollup.cluster_id,
                 self.epoch,
