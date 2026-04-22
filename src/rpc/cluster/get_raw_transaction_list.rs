@@ -302,6 +302,14 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
         mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
 
+        let batch_number = mut_rollup_metadata.batch_number;
+        let transaction_order = mut_rollup_metadata.transaction_order;
+        let provided_batch_number = mut_rollup_metadata.provided_batch_number;
+        let provided_transaction_order = mut_rollup_metadata.provided_transaction_order;
+
+        mut_cluster_metadata.update()?;
+        mut_rollup_metadata.update()?;
+
         let epoch_metadata = EpochMetadata::get(&rollup_id)?;
 
         sync_leader_tx_orderer(
@@ -309,10 +317,10 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             cluster,
             self.leader_change_message.clone(),
             self.rollup_signature,
-            mut_rollup_metadata.batch_number,
-            mut_rollup_metadata.transaction_order,
-            mut_rollup_metadata.provided_batch_number,
-            mut_rollup_metadata.provided_transaction_order,
+            batch_number,
+            transaction_order,
+            provided_batch_number,
+            provided_transaction_order,
             old_epoch,
             new_epoch,
             epoch_metadata,
@@ -321,7 +329,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         // (get 요청을 현재 epoch leader가 받았을 시) epoch_sent_transaction_count 는 non-leader 노드에서만 증가되므로, 이 코드에서는 항상 0일 것임.
         // TODO: 이 코드 지우기
-        let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&old_epoch).copied().unwrap_or(0);
+        let epoch_sent_transaction_count = 0;
 
         send_end_signal_to_epoch_leader(
             context.clone(),
@@ -330,15 +338,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             epoch_leader_cluster_rpc_url,
             epoch_sent_transaction_count,
         );
-
-        mut_cluster_metadata.update()?;
-        let _ = mut_rollup_metadata.update().map_err(|error| {
-            tracing::error!(
-                "rollup_metadata update error - rollup id: {:?}, error: {:?}",
-                self.leader_change_message.rollup_id,
-                error
-            );
-        });
 
         /*
         let end_get_raw_transaction_list_time = SystemTime::now()
