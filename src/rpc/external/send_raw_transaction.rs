@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use radius_sdk::signature::Address;
 
@@ -28,6 +29,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
     }
 
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
+        let start_send_raw_transaction_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos();
+
         let rollup = Rollup::get(&self.rollup_id)?;
 
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
@@ -35,7 +41,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::SignerNotFound
         })?;
 
-        // 현재 노드의 주소 가져오기
+        // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
         
         let mut mut_cluster_metadata = ClusterMetadata::get_mut(
@@ -52,26 +58,18 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterMetadataNotFound
         })?;
 
-        // 트랜잭션이 client에서 온 경우, ClusterMetadata의 epoch를 트랜잭션의 epoch로 설정
+        // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
         match &mut self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => {
-                if eth_tx.epoch.is_none() { // if the transaction is from the client
-                    // set the epoch
+                if eth_tx.epoch.is_none() { // If the transaction is from the client
+                    // Set the epoch
                     eth_tx.set_epoch(mut_cluster_metadata.epoch); 
                 }
                 else {
-                    // transaction already has epoch/leader set (not from client)
+                    // The transaction already has epoch/leader set (not from a client)
                     let eth_tx_epoch = eth_tx.epoch.unwrap();
                     if eth_tx_epoch > mut_cluster_metadata.epoch {
                         if mut_cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
-                            /*
-                            tracing::info!(
-                                "Received transaction for future epoch from peer; inferring self as leader for epoch. tx_epoch={:?}, local_epoch={:?}",
-                                eth_tx_epoch,
-                                mut_cluster_metadata.epoch,
-                            );
-                            */
-
                             mut_cluster_metadata.epoch_leader_map.insert(eth_tx_epoch, tx_orderer_address.clone());
                         }
                     }
@@ -91,7 +89,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterNotFound
         })?;
 
-        // 현재 epoch의 리더 노드 주소 가져오기
+        // Get the address of the epoch leader node
         let epoch_leader_address = match &self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => eth_tx
                 .epoch
@@ -265,6 +263,17 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 }
             }
 
+            let end_send_raw_transaction_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos();
+
+            tracing::info!(
+                "send_raw_transaction(leader) - total take time: {:?}",
+                end_send_raw_transaction_time - start_send_raw_transaction_time
+            );
+
+
             match rollup.order_commitment_type {
                 OrderCommitmentType::TransactionHash => Ok(OrderCommitment::Single(
                     SingleOrderCommitment::TransactionHash(TransactionHashOrderCommitment::new(
@@ -319,7 +328,18 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         )
                         .await
                     {
-                        Ok(response) => Ok(response),
+                        Ok(response) => {
+                            let end_send_raw_transaction_time = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_nanos();
+                            tracing::info!(
+                                "send_raw_transaction(non-leader) - total take time: {:?}",
+                                end_send_raw_transaction_time - start_send_raw_transaction_time
+                            );
+                            
+                            Ok(response)
+                        }
                         Err(error) => {
                             tracing::error!(
                                 "Send raw transaction - leader external rpc error: {:?}",

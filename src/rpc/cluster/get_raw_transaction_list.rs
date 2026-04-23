@@ -56,17 +56,10 @@ impl RpcParameter<AppState> for GetRawTransactionList {
     }
 
     async fn handler(self, context: AppState) -> Result<Self::Response, RpcError> {
-        /*
         let start_get_raw_transaction_list_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos();
-        */
-
-        /*
-        tracing::info!("================================="); // test code
-        tracing::info!("[get_raw_transaction_list]: start"); // test code
-        */
 
         let mut raw_transaction_list = Vec::new();
 
@@ -339,7 +332,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             epoch_sent_transaction_count,
         );
 
-        /*
         let end_get_raw_transaction_list_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -349,7 +341,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             "get_raw_transaction_list - total take time: {:?}",
             end_get_raw_transaction_list_time - start_get_raw_transaction_list_time
         );
-        */
 
         let shared_channel_infos = context.shared_channel_infos();
         let mev_searcher_infos = MevSearcherInfos::get_or(MevSearcherInfos::default).unwrap();
