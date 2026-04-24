@@ -51,9 +51,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
     }
 
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
-        let handler_start_ms = now_epoch_ms();
-
         let rollup = Rollup::get(&self.rollup_id)?;
+
+        let handler_start_ms = now_epoch_ms();
 
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
             tracing::error!("Signer not found for platform {:?}", rollup.platform);
