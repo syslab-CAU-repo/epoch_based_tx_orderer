@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use radius_sdk::signature::Address;
@@ -14,6 +14,28 @@ use crate::{
 
 static PROCESSED_TX_COUNT: AtomicU64 = AtomicU64::new(0);
 
+/// Wall times for a single `send_raw_transaction` handler on one node; **milliseconds** since Unix epoch.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SendRawTransactionHandlerTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionResponse {
+    pub order_commitment: OrderCommitment,
+    pub handler_timings: SendRawTransactionHandlerTimings,
+    /// Present when a non-leader node forwarded: `handler_timings` is this hop, this holds the leader's timings.
+    pub leader_handler_timings: Option<SendRawTransactionHandlerTimings>,
+}
+
+fn now_epoch_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_millis()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransaction {
     pub rollup_id: RollupId,
@@ -22,17 +44,14 @@ pub struct SendRawTransaction {
 }
 
 impl RpcParameter<AppState> for SendRawTransaction {
-    type Response = OrderCommitment;
+    type Response = SendRawTransactionResponse;
 
     fn method() -> &'static str {
         "send_raw_transaction"
     }
 
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
-        let start_send_raw_transaction_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos();
+        let handler_start_ms = now_epoch_ms();
 
         let rollup = Rollup::get(&self.rollup_id)?;
 
@@ -263,25 +282,25 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 }
             }
 
-            let end_send_raw_transaction_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos();
+            let handler_end_ms = now_epoch_ms();
 
-            tracing::info!(
-                "send_raw_transaction(leader) - total take time: {:?}",
-                end_send_raw_transaction_time - start_send_raw_transaction_time
-            );
-
-
-            match rollup.order_commitment_type {
-                OrderCommitmentType::TransactionHash => Ok(OrderCommitment::Single(
+            let order_commitment = match rollup.order_commitment_type {
+                OrderCommitmentType::TransactionHash => OrderCommitment::Single(
                     SingleOrderCommitment::TransactionHash(TransactionHashOrderCommitment::new(
                         transaction_hash.as_string(),
                     )),
-                )),
-                OrderCommitmentType::Sign => Ok(order_commitment),
-            }
+                ),
+                OrderCommitmentType::Sign => order_commitment,
+            };
+
+            Ok(SendRawTransactionResponse {
+                order_commitment,
+                handler_timings: SendRawTransactionHandlerTimings {
+                    start_ms: handler_start_ms,
+                    end_ms: handler_end_ms,
+                },
+                leader_handler_timings: None,
+            })
         } else {
             // === Not the leader: forward to the leader node ===
             let epoch = match &self.raw_transaction {
@@ -320,7 +339,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                     match context
                         .rpc_client()
-                        .request(
+                        .request::<&SendRawTransaction, SendRawTransactionResponse>(
                             leader_external_rpc_url,
                             SendRawTransaction::method(),
                             &self,
@@ -329,16 +348,16 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
-                            let end_send_raw_transaction_time = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .expect("Time went backwards")
-                                .as_nanos();
-                            tracing::info!(
-                                "send_raw_transaction(non-leader) - total take time: {:?}",
-                                end_send_raw_transaction_time - start_send_raw_transaction_time
-                            );
-                            
-                            Ok(response)
+                            let handler_end_ms = now_epoch_ms();
+                            let leader_handler_timings = response.handler_timings;
+                            Ok(SendRawTransactionResponse {
+                                order_commitment: response.order_commitment,
+                                handler_timings: SendRawTransactionHandlerTimings {
+                                    start_ms: handler_start_ms,
+                                    end_ms: handler_end_ms,
+                                },
+                                leader_handler_timings: Some(leader_handler_timings),
+                            })
                         }
                         Err(error) => {
                             tracing::error!(
