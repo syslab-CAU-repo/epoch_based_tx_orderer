@@ -53,8 +53,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
         let rollup = Rollup::get(&self.rollup_id)?;
 
-        let handler_start_ms = now_epoch_ms();
-
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
             tracing::error!("Signer not found for platform {:?}", rollup.platform);
             Error::SignerNotFound
@@ -63,6 +61,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
         
+        let handler_start_ms = now_epoch_ms();
+
         let mut mut_cluster_metadata = ClusterMetadata::get_mut(
             rollup.platform,
             rollup.liveness_service_provider,
@@ -76,6 +76,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
             Error::ClusterMetadataNotFound
         })?;
+
+        let handler_end_ms = now_epoch_ms();
 
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
         match &mut self.raw_transaction {
@@ -282,8 +284,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 }
             }
 
-            let handler_end_ms = now_epoch_ms();
-
             let order_commitment = match rollup.order_commitment_type {
                 OrderCommitmentType::TransactionHash => OrderCommitment::Single(
                     SingleOrderCommitment::TransactionHash(TransactionHashOrderCommitment::new(
@@ -348,7 +348,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
-                            let handler_end_ms = now_epoch_ms();
                             let leader_handler_timings = response.handler_timings;
                             Ok(SendRawTransactionResponse {
                                 order_commitment: response.order_commitment,
