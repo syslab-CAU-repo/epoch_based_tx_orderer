@@ -5,7 +5,8 @@ use radius_sdk::signature::Address;
 
 use spin::Mutex;
 
-static MUTEX: Mutex<()> = Mutex::new(());
+static MUTEX1: Mutex<()> = Mutex::new(());
+static MUTEX2: Mutex<()> = Mutex::new(());
 
 use crate::{
     rpc::{
@@ -65,83 +66,105 @@ impl RpcParameter<AppState> for SendRawTransaction {
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
 
-        let mut mut_cluster_metadata = ClusterMetadata::get_mut(
-            rollup.platform,
-            rollup.liveness_service_provider,
-            &rollup.cluster_id,
-        )
-        .map_err(|e| {
-            if e.is_none_type() {
-                tracing::warn!("ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})", rollup.platform, rollup.liveness_service_provider, rollup.cluster_id);
-            } else {
-                tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
-            }
-            Error::ClusterMetadataNotFound
-        })?;
+        let (platform_block_height, is_current_leader, epoch_leader_address) = {
+            let _lock = MUTEX1.lock();
 
-        // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
-        match &mut self.raw_transaction {
-            RawEpochTransaction::Eth(eth_tx) => {
-                if eth_tx.epoch.is_none() { // If the transaction is from the client
-                    // Set the epoch
-                    eth_tx.set_epoch(mut_cluster_metadata.epoch); 
+            let mut mut_cluster_metadata = ClusterMetadata::get_mut(
+                rollup.platform,
+                rollup.liveness_service_provider,
+                &rollup.cluster_id,
+            )
+            .map_err(|e| {
+                if e.is_none_type() {
+                    tracing::warn!("ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})", rollup.platform, rollup.liveness_service_provider, rollup.cluster_id);
+                } else {
+                    tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
                 }
-                else {
-                    // The transaction already has epoch/leader set (not from a client)
-                    let eth_tx_epoch = eth_tx.epoch.unwrap();
-                    if eth_tx_epoch > mut_cluster_metadata.epoch {
-                        if mut_cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
-                            mut_cluster_metadata.epoch_leader_map.insert(eth_tx_epoch, tx_orderer_address.clone());
+                Error::ClusterMetadataNotFound
+            })?;
+
+            // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
+            match &mut self.raw_transaction {
+                RawEpochTransaction::Eth(eth_tx) => {
+                    if eth_tx.epoch.is_none() { // If the transaction is from the client
+                        // Set the epoch
+                        eth_tx.set_epoch(mut_cluster_metadata.epoch); 
+                    }
+                    else {
+                        // The transaction already has epoch/leader set (not from a client)
+                        let eth_tx_epoch = eth_tx.epoch.unwrap();
+                        if eth_tx_epoch > mut_cluster_metadata.epoch {
+                            if mut_cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
+                                mut_cluster_metadata.epoch_leader_map.insert(eth_tx_epoch, tx_orderer_address.clone());
+                            }
                         }
                     }
                 }
+                RawEpochTransaction::EthBundle(_) => {}
             }
-            RawEpochTransaction::EthBundle(_) => {}
-        }
+            // Get the address of the epoch leader node
+            let epoch_leader_address = match &self.raw_transaction {
+                RawEpochTransaction::Eth(eth_tx) => eth_tx
+                    .epoch
+                    .and_then(|epoch| mut_cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
+                RawEpochTransaction::EthBundle(_) => None,
+            };
+
+            // 현재 노드가 현재 epoch의 리더인지 확인
+            let is_current_leader = match &self.raw_transaction {
+                RawEpochTransaction::Eth(_) => {
+                    let Some(leader_addr) = epoch_leader_address.as_ref() else {
+                        tracing::error!(
+                            "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
+                            self.rollup_id
+                        );
+                        return Err(
+                            Error::GeneralError(
+                                "No leader registered for this transaction epoch in cluster metadata"
+                                    .into(),
+                            )
+                            .into(),
+                        );
+                    };
+                    tx_orderer_address == *leader_addr
+                }
+                RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.is_leader,
+            };
+
+            let platform_block_height = mut_cluster_metadata.platform_block_height;
+
+            if is_current_leader {
+                mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
+            } else {
+                // === Not the leader: forward to the leader node ===
+                let epoch = match &self.raw_transaction {
+                    RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(mut_cluster_metadata.epoch),
+                    RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.epoch,
+                };
+
+                // mut_cluster_metadata 의 increment_sent_transaction_count 에서 지금 epoch의 트랜잭션 수를 증가시키기
+                mut_cluster_metadata.increment_sent_transaction_count(epoch);
+
+                self.sender_address = Some(tx_orderer_address.clone());
+
+                mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
+            }
+
+            (platform_block_height, is_current_leader, epoch_leader_address)
+        };
 
         let cluster = Cluster::get(
             rollup.platform,
             rollup.liveness_service_provider,
             &rollup.cluster_id,
-            mut_cluster_metadata.platform_block_height,
+            platform_block_height,
         )
         .map_err(|error| {
             tracing::error!("Failed to get cluster: {:?}", error);
             Error::ClusterNotFound
         })?;
 
-        // Get the address of the epoch leader node
-        let epoch_leader_address = match &self.raw_transaction {
-            RawEpochTransaction::Eth(eth_tx) => eth_tx
-                .epoch
-                .and_then(|epoch| mut_cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
-            RawEpochTransaction::EthBundle(_) => None,
-        };
-
-        // 현재 노드가 현재 epoch의 리더인지 확인
-        let is_current_leader = match &self.raw_transaction {
-            RawEpochTransaction::Eth(_) => {
-                let Some(leader_addr) = epoch_leader_address.as_ref() else {
-                    tracing::error!(
-                        "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
-                        self.rollup_id
-                    );
-                    return Err(
-                        Error::GeneralError(
-                            "No leader registered for this transaction epoch in cluster metadata"
-                                .into(),
-                        )
-                        .into(),
-                    );
-                };
-                tx_orderer_address == *leader_addr
-            }
-            RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.is_leader,
-        };
-
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
-            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
                 rollup.liveness_service_provider,
@@ -155,7 +178,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
             let handler_start_ms = now_epoch_ms();
 
             let (epoch, transaction_order, transaction_hash, handler_end_ms) = {
-                let _lock = MUTEX.lock();
+                let _lock = MUTEX2.lock();
 
                 let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
@@ -312,19 +335,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 leader_handler_timings: None,
             })
         } else {
-            // === Not the leader: forward to the leader node ===
-            let epoch = match &self.raw_transaction {
-                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(mut_cluster_metadata.epoch),
-                RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.epoch,
-            };
-
-            // mut_cluster_metadata 의 increment_sent_transaction_count 에서 지금 epoch의 트랜잭션 수를 증가시키기
-            mut_cluster_metadata.increment_sent_transaction_count(epoch);
-
-            self.sender_address = Some(tx_orderer_address.clone());
-
-            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
                 rollup.liveness_service_provider,
