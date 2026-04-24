@@ -60,8 +60,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
-        
-        let handler_start_ms = now_epoch_ms();
 
         let mut mut_cluster_metadata = ClusterMetadata::get_mut(
             rollup.platform,
@@ -76,8 +74,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
             Error::ClusterMetadataNotFound
         })?;
-
-        let handler_end_ms = now_epoch_ms();
 
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
         match &mut self.raw_transaction {
@@ -142,7 +138,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
             mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
+            let handler_start_ms = now_epoch_ms();
+
             let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
+
+            let handler_end_ms = now_epoch_ms();
 
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
@@ -352,8 +352,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
                             Ok(SendRawTransactionResponse {
                                 order_commitment: response.order_commitment,
                                 handler_timings: SendRawTransactionHandlerTimings {
-                                    start_ms: handler_start_ms,
-                                    end_ms: handler_end_ms,
+                                    start_ms: leader_handler_timings.start_ms,
+                                    end_ms: leader_handler_timings.end_ms,
                                 },
                                 leader_handler_timings: Some(leader_handler_timings),
                             })
