@@ -33,3 +33,5 @@ tokio-stream = "0.1"
 
 radius-sdk = { git = "https://github.com/radiusxyz/radius-sdk-rs", rev = "7fbbffeb6ab7807a489bb5a7bc03eaa66031f398", features = ["full"] }
 # radius-sdk = { path = "../radius-sdk-rs/radius-sdk", features = ["full"] }
+
+spin = "0.9"
