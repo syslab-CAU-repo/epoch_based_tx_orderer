@@ -58,10 +58,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
         let rollup = Rollup::get(&self.rollup_id)?;
 
+        let handler_start_ms = now_epoch_ms();
+
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
             tracing::error!("Signer not found for platform {:?}", rollup.platform);
             Error::SignerNotFound
         })?;
+
+        let handler_end_ms = now_epoch_ms();
 
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
@@ -175,14 +179,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 Error::ClusterMetadataNotFound
             })?;
 
-            let handler_start_ms = now_epoch_ms();
+            
 
             let (epoch, transaction_order, transaction_hash, handler_end_ms) = {
                 let _lock = MUTEX2.lock();
 
                 let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
-
-                let handler_end_ms = now_epoch_ms();
 
                 // let epoch = mut_epoch_metadata.current_epoch();
                 let epoch = match &self.raw_transaction {
