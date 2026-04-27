@@ -26,12 +26,32 @@ pub struct SendRawTransactionHandlerTimings {
     pub end_ms: u128,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SendRawTransactionClusterMetadataTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SendRawTransactionEpochMetadataTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SendRawTransactionSignerTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransactionResponse {
     pub order_commitment: OrderCommitment,
     pub handler_timings: SendRawTransactionHandlerTimings,
     /// Present when a non-leader node forwarded: `handler_timings` is this hop, this holds the leader's timings.
-    pub leader_handler_timings: Option<SendRawTransactionHandlerTimings>,
+    pub cluster_metadata_timings: Option<SendRawTransactionClusterMetadataTimings>,
+    pub epoch_metadata_timings: Option<SendRawTransactionEpochMetadataTimings>,
+    pub signer_timings: Option<SendRawTransactionSignerTimings>,
 }
 
 fn now_epoch_ms() -> u128 {
@@ -56,18 +76,28 @@ impl RpcParameter<AppState> for SendRawTransaction {
     }
 
     async fn handler(mut self, context: AppState) -> Result<Self::Response, RpcError> {
+        let handler_start_ms = now_epoch_ms(); // test code
+
         let rollup = Rollup::get(&self.rollup_id)?;
+
+        let signer_start_ms = now_epoch_ms(); // test code
 
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
             tracing::error!("Signer not found for platform {:?}", rollup.platform);
             Error::SignerNotFound
         })?;
 
+        let signer_end_ms = now_epoch_ms(); // test code
+
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
 
-        let (platform_block_height, is_current_leader, epoch_leader_address) = {
+        let cluster_metadata_start_ms = now_epoch_ms(); // test code
+
+        let (platform_block_height, is_current_leader, epoch_leader_address, cluster_metadata_end_ms) = {
             let _lock = MUTEX1.lock();
+
+            let cluster_metadata_end_ms = now_epoch_ms(); // test code
 
             let mut mut_cluster_metadata = ClusterMetadata::get_mut(
                 rollup.platform,
@@ -150,7 +180,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
             }
 
-            (platform_block_height, is_current_leader, epoch_leader_address)
+            (platform_block_height, is_current_leader, epoch_leader_address, cluster_metadata_end_ms)
         };
 
         let cluster = Cluster::get(
@@ -175,12 +205,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 Error::ClusterMetadataNotFound
             })?;
 
-            let handler_start_ms = now_epoch_ms();
+            let epoch_metadata_start_ms = now_epoch_ms(); // test code
 
-            let (epoch, transaction_order, transaction_hash, handler_end_ms) = {
+            let (epoch, transaction_order, transaction_hash, epoch_metadata_end_ms) = {
                 let _lock = MUTEX2.lock();
                 
-                let handler_end_ms = now_epoch_ms();
+                let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
                 let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
@@ -236,7 +266,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                 mut_epoch_metadata.update()?;
 
-                (epoch, transaction_order, transaction_hash, handler_end_ms)
+                (epoch, transaction_order, transaction_hash, epoch_metadata_end_ms)
             };
 
             RawEpochTransactionModel::put_with_transaction_hash(
@@ -326,13 +356,26 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 OrderCommitmentType::Sign => order_commitment,
             };
 
+            let handler_end_ms = now_epoch_ms(); // test code
+
             Ok(SendRawTransactionResponse {
                 order_commitment,
                 handler_timings: SendRawTransactionHandlerTimings {
                     start_ms: handler_start_ms,
                     end_ms: handler_end_ms,
                 },
-                leader_handler_timings: None,
+                cluster_metadata_timings: Some(SendRawTransactionClusterMetadataTimings {
+                    start_ms: cluster_metadata_start_ms,
+                    end_ms: cluster_metadata_end_ms,
+                }),
+                epoch_metadata_timings: Some(SendRawTransactionEpochMetadataTimings {
+                    start_ms: epoch_metadata_start_ms,
+                    end_ms: epoch_metadata_end_ms,
+                }),
+                signer_timings: Some(SendRawTransactionSignerTimings {
+                    start_ms: signer_start_ms,
+                    end_ms: signer_end_ms,
+                }),
             })
         } else {
             let cluster_metadata = ClusterMetadata::get(
@@ -368,14 +411,23 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
-                            let leader_handler_timings = response.handler_timings;
+                            let handler_end_ms = now_epoch_ms(); // test code
+
                             Ok(SendRawTransactionResponse {
                                 order_commitment: response.order_commitment,
                                 handler_timings: SendRawTransactionHandlerTimings {
-                                    start_ms: leader_handler_timings.start_ms,
-                                    end_ms: leader_handler_timings.end_ms,
+                                    start_ms: handler_start_ms,
+                                    end_ms: handler_end_ms,
                                 },
-                                leader_handler_timings: Some(leader_handler_timings),
+                                cluster_metadata_timings: Some(SendRawTransactionClusterMetadataTimings {
+                                    start_ms: cluster_metadata_start_ms,
+                                    end_ms: cluster_metadata_end_ms,
+                                }),
+                                epoch_metadata_timings: None,
+                                signer_timings: Some(SendRawTransactionSignerTimings {
+                                    start_ms: signer_start_ms,
+                                    end_ms: signer_end_ms,
+                                }),
                             })
                         }
                         Err(error) => {
