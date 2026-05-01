@@ -276,7 +276,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         mut_cluster_metadata.leader_tx_orderer_rpc_info = Some(leader_tx_orderer_rpc_info.clone());
 
         let old_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
-        CLUSTER_EPOCH.store(old_epoch + 1, Ordering::Relaxed);
 
         let new_epoch = old_epoch + 1;
 
@@ -325,6 +324,8 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         mut_cluster_metadata.update()?;
         mut_rollup_metadata.update()?;
+
+        CLUSTER_EPOCH.store(new_epoch, Ordering::Relaxed);
 
         let epoch_metadata = EpochMetadata::get(&rollup_id)?;
 

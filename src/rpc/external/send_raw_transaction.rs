@@ -94,6 +94,18 @@ impl RpcParameter<AppState> for SendRawTransaction {
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
 
+        let cluster_epoch = {
+            let _lock = MUTEX2.lock();
+            
+            let cluster_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
+
+            REDIRECT_RING.incr(cluster_epoch);
+
+            cluster_epoch
+        };
+
+        self.sender_address = Some(tx_orderer_address.clone());
+
         let cluster_metadata_start_ms = now_epoch_ms(); // test code
 
         let cluster_metadata = ClusterMetadata::get(
@@ -107,16 +119,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
         })?;
 
         let cluster_metadata_end_ms = now_epoch_ms(); // test code
-
-        let cluster_epoch = {
-            let _lock = MUTEX2.lock();
-            
-            let cluster_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
-
-            REDIRECT_RING.incr(cluster_epoch);
-
-            cluster_epoch
-        };
 
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
         let epoch = match &mut self.raw_transaction {
@@ -416,12 +418,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
-                            let redirect_epoch = match &self.raw_transaction {
-                                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_epoch),
-                                RawEpochTransaction::EthBundle(_) => cluster_epoch,
-                            };
-                            REDIRECT_RING.incr(redirect_epoch);
-
                             let handler_end_ms = now_epoch_ms(); // test code
 
                             Ok(SendRawTransactionResponse {
