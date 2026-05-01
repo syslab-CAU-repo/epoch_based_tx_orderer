@@ -99,8 +99,6 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
             );
         }
 
-        CLUSTER_EPOCH.store(self.new_epoch, Ordering::Relaxed);
-
         if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&self.new_epoch)
         {
             if *provisional_leader != self.leader_change_message.next_leader_tx_orderer_address {
@@ -154,6 +152,8 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
         );
 
         mut_cluster_metadata.update()?;
+
+        CLUSTER_EPOCH.store(self.new_epoch, Ordering::Relaxed);
 
         let mut mut_rollup_metadata = RollupMetadata::get_mut(&rollup_id)?;
 
