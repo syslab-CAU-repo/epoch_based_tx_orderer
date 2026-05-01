@@ -7,7 +7,7 @@ use std::{
 use radius_sdk::{json_rpc::client::Priority, signature::Address};
 use tokio::{sync::mpsc::UnboundedReceiver, time::Instant};
 
-use super::{send_end_signal_to_epoch_leader, SyncLeaderTxOrderer};
+use super::{sync_can_provide_epoch_info, SyncLeaderTxOrderer};
 use crate::{
     rpc::{
         cluster::{GetOrderCommitmentInfo, GetOrderCommitmentInfoResponse, SyncEpochMetadata},
@@ -281,18 +281,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         // tracing::info!("[get_raw_transaction_list]: old_epoch: {:?}", old_epoch); // test code
 
-        let epoch_leader_cluster_rpc_url = cluster
-            .get_tx_orderer_rpc_info(&self.leader_change_message.current_leader_tx_orderer_address)
-            .and_then(|info| info.cluster_rpc_url)
-            .ok_or_else(|| {
-                tracing::error!(
-                    "cluster_rpc_url not found for epoch leader {:?} (old_epoch: {})",
-                    self.leader_change_message.current_leader_tx_orderer_address,
-                    old_epoch
-                );
-                Error::GeneralError("epoch leader cluster_rpc_url not found".into())
-            })?;
-
         // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
         if !mut_cluster_metadata
             .epoch_leader_map
@@ -331,7 +319,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
 
         sync_leader_tx_orderer(
             context.clone(),
-            cluster,
+            cluster.clone(),
             self.leader_change_message.clone(),
             self.rollup_signature,
             batch_number,
@@ -344,17 +332,66 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         )
         .await;
 
-        // (get 요청을 현재 epoch leader가 받았을 시) epoch_sent_transaction_count 는 non-leader 노드에서만 증가되므로, 이 코드에서는 항상 0일 것임.
-        // TODO: 이 코드 지우기
-        let epoch_sent_transaction_count = 0;
+        let node_index = cluster
+            .tx_orderer_rpc_infos
+            .iter()
+            .find_map(|(index, info)| {
+                if info.tx_orderer_address == tx_orderer_address {
+                    Some(*index)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                tracing::error!(
+                    "Failed to find node index for current tx_orderer_address: {:?} in cluster. rollup_id: {:?}, epoch: {}",
+                    tx_orderer_address,
+                    rollup_id,
+                    old_epoch
+                );
+                Error::TxOrdererInfoNotFound
+            })?;
 
-        send_end_signal_to_epoch_leader(
-            context.clone(),
-            rollup_id.clone(),
-            old_epoch,
-            epoch_leader_cluster_rpc_url,
-            epoch_sent_transaction_count,
-        );
+        let current_node_cluster_rpc_url = cluster
+            .get_tx_orderer_rpc_info(&tx_orderer_address)
+            .and_then(|info| info.cluster_rpc_url)
+            .ok_or_else(|| {
+                tracing::error!(
+                    "Cluster RPC URL not found for current node. tx_orderer_address: {:?}",
+                    tx_orderer_address
+                );
+                Error::GeneralError("current node cluster_rpc_url not found".into())
+            })?;
+
+        let mut mut_end_signal_metadata = EndSignalMetadata::get_mut(
+            rollup.platform,
+            rollup.liveness_service_provider,
+            &rollup.cluster_id,
+        )?;
+
+        mut_end_signal_metadata.set_node_bit(old_epoch, node_index);
+
+        let total_nodes = cluster.tx_orderer_rpc_infos.len();
+        let all_nodes_sent_signal =
+            mut_end_signal_metadata.all_nodes_sent_signal(old_epoch, total_nodes);
+
+        if all_nodes_sent_signal {
+            CanProvideEpochInfo::add_completed_epoch(&rollup_id, old_epoch)?;
+        }
+
+        mut_end_signal_metadata.update()?;
+
+        if all_nodes_sent_signal {
+            let old_epoch_transaction_order = EpochMetadata::get(&rollup_id)?.transaction_order(old_epoch);
+            sync_can_provide_epoch_info(
+                context.clone(),
+                cluster.clone(),
+                rollup_id.clone(),
+                old_epoch,
+                old_epoch_transaction_order,
+                current_node_cluster_rpc_url,
+            );
+        }
 
         /*
         let end_get_raw_transaction_list_time = SystemTime::now()
