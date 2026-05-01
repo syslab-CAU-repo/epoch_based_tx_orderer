@@ -38,33 +38,52 @@ impl RedirectRing {
 
         loop {
             let cur = slot.epoch.load(Ordering::Acquire);
+
             if cur == epoch {
                 slot.count.fetch_add(1, Ordering::Relaxed);
                 return;
-            }
+            } else {
+                // Slot is in the replacing state - go to overflow
+                // TODO: make overflow logic
+                if cur == EPOCH_REPLACING {
+                    self.overflow
+                        .entry(epoch)
+                        .or_insert_with(|| AtomicU64::new(0))
+                        .fetch_add(1, Ordering::Relaxed);
+                    return;
+                } 
+                
+                // Slot is empty
+                if cur == EMPTY {
+                    if slot
+                        .epoch
+                        .compare_exchange(cur, EPOCH_REPLACING, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
+                        // We own the replacement
+                        slot.count.store(0, Ordering::Relaxed); // optional: depends on semantics
+                        slot.epoch.store(epoch, Ordering::Release);
+                        slot.count.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                }
 
-            // the slot is being replaced
-            if cur == EPOCH_REPLACING {
-                self.overflow
-                    .entry(epoch)
-                    .or_insert_with(|| AtomicU64::new(0))
-                    .fetch_add(1, Ordering::Relaxed);
-                return;
-            }
+                // Slot is occupied and not in the replacing state - try to become the replacer
+                if slot
+                    .epoch
+                    .compare_exchange(cur, EPOCH_REPLACING, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    // We own the replacement
+                    slot.count.store(0, Ordering::Relaxed); // optional: depends on semantics
+                    slot.epoch.store(epoch, Ordering::Release);
+                    slot.count.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
 
-            // try to become the replacer
-            if slot
-                .epoch
-                .compare_exchange(cur, EPOCH_REPLACING, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                // we own the replacement
-                slot.count.store(0, Ordering::Relaxed); // optional: depends on semantics
-                slot.epoch.store(epoch, Ordering::Release);
-                slot.count.fetch_add(1, Ordering::Relaxed);
-                return;
+                // Lost the race; retry
+                continue;
             }
-            // lost the race; retry
         }
     }
 
