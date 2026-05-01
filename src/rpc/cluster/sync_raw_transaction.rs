@@ -117,7 +117,7 @@ impl RpcParameter<AppState> for SyncRawTransaction {
             vec![self.batch_tx_order],
         )?;
 
-        /* 
+        /*
         let end_sync_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")

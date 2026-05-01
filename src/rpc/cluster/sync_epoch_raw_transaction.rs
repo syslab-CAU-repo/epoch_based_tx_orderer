@@ -111,7 +111,7 @@ impl RpcParameter<AppState> for SyncEpochRawTransaction {
                 Error::Database(error)
             })?;
 
-        /* 
+        /*
         let end_sync_epoch_raw_transaction_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")

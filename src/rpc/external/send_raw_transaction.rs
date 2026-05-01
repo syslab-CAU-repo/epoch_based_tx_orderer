@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use radius_sdk::signature::Address;
@@ -10,7 +10,9 @@ static MUTEX2: Mutex<()> = Mutex::new(());
 
 use crate::{
     rpc::{
-        cluster::{BatchCreationMessage, SyncBatchCreation, SyncEpochRawTransaction, SyncRawTransaction},
+        cluster::{
+            BatchCreationMessage, SyncBatchCreation, SyncEpochRawTransaction, SyncRawTransaction,
+        },
         external::issue_order_commitment,
         prelude::*,
     },
@@ -94,94 +96,107 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
         let cluster_metadata_start_ms = now_epoch_ms(); // test code
 
-        let (platform_block_height, is_current_leader, epoch_leader_address, cluster_metadata_end_ms) = {
-            let _lock = MUTEX1.lock();
+        let cluster_metadata = ClusterMetadata::get(
+            rollup.platform,
+            rollup.liveness_service_provider,
+            &rollup.cluster_id,
+        )
+        .map_err(|error| {
+            tracing::error!("Failed to get cluster metadata: {:?}", error);
+            Error::ClusterMetadataNotFound
+        })?;
 
-            let cluster_metadata_end_ms = now_epoch_ms(); // test code
+        let cluster_metadata_end_ms = now_epoch_ms(); // test code
 
-            let mut mut_cluster_metadata = ClusterMetadata::get_mut(
-                rollup.platform,
-                rollup.liveness_service_provider,
-                &rollup.cluster_id,
-            )
-            .map_err(|e| {
-                if e.is_none_type() {
-                    tracing::warn!("ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})", rollup.platform, rollup.liveness_service_provider, rollup.cluster_id);
-                } else {
-                    tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
-                }
-                Error::ClusterMetadataNotFound
-            })?;
+        let cluster_epoch = {
+            let _lock = MUTEX2.lock();
+            
+            let cluster_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
 
-            // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
-            match &mut self.raw_transaction {
-                RawEpochTransaction::Eth(eth_tx) => {
-                    if eth_tx.epoch.is_none() { // If the transaction is from the client
-                        // Set the epoch
-                        eth_tx.set_epoch(mut_cluster_metadata.epoch); 
-                    }
-                    else {
-                        // The transaction already has epoch/leader set (not from a client)
-                        let eth_tx_epoch = eth_tx.epoch.unwrap();
-                        if eth_tx_epoch > mut_cluster_metadata.epoch {
-                            if mut_cluster_metadata.epoch_leader_map.get(&eth_tx_epoch).is_none() {
-                                mut_cluster_metadata.epoch_leader_map.insert(eth_tx_epoch, tx_orderer_address.clone());
-                            }
-                        }
-                    }
-                }
-                RawEpochTransaction::EthBundle(_) => {}
-            }
-            // Get the address of the epoch leader node
-            let epoch_leader_address = match &self.raw_transaction {
-                RawEpochTransaction::Eth(eth_tx) => eth_tx
-                    .epoch
-                    .and_then(|epoch| mut_cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
-                RawEpochTransaction::EthBundle(_) => None,
-            };
+            REDIRECT_RING.incr(cluster_epoch);
 
-            // 현재 노드가 현재 epoch의 리더인지 확인
-            let is_current_leader = match &self.raw_transaction {
-                RawEpochTransaction::Eth(_) => {
-                    let Some(leader_addr) = epoch_leader_address.as_ref() else {
-                        tracing::error!(
-                            "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
-                            self.rollup_id
-                        );
-                        return Err(
-                            Error::GeneralError(
-                                "No leader registered for this transaction epoch in cluster metadata"
-                                    .into(),
-                            )
-                            .into(),
-                        );
-                    };
-                    tx_orderer_address == *leader_addr
-                }
-                RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.is_leader,
-            };
-
-            let platform_block_height = mut_cluster_metadata.platform_block_height;
-
-            if is_current_leader {
-                mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-            } else {
-                // === Not the leader: forward to the leader node ===
-                let epoch = match &self.raw_transaction {
-                    RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(mut_cluster_metadata.epoch),
-                    RawEpochTransaction::EthBundle(_) => mut_cluster_metadata.epoch,
-                };
-
-                // mut_cluster_metadata 의 increment_sent_transaction_count 에서 지금 epoch의 트랜잭션 수를 증가시키기
-                mut_cluster_metadata.increment_sent_transaction_count(epoch);
-
-                self.sender_address = Some(tx_orderer_address.clone());
-
-                mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-            }
-
-            (platform_block_height, is_current_leader, epoch_leader_address, cluster_metadata_end_ms)
+            cluster_epoch
         };
+
+        // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
+        match &mut self.raw_transaction {
+            RawEpochTransaction::Eth(eth_tx) => {
+                if eth_tx.epoch.is_none() {
+                    // If the transaction is from the client
+                    // Set the epoch
+                    eth_tx.set_epoch(cluster_epoch);
+                } else {
+                    let eth_tx_epoch = eth_tx.epoch.unwrap();
+                    if eth_tx_epoch > cluster_epoch {
+                        let mut_cluster_metadata_start_ms = now_epoch_ms(); // test code
+
+                        // The transaction already has epoch/leader set (not from a client)
+                        let mut mut_cluster_metadata = ClusterMetadata::get_mut(
+                            rollup.platform,
+                            rollup.liveness_service_provider,
+                            &rollup.cluster_id,
+                        )
+                        .map_err(|e| {
+                            if e.is_none_type() {
+                                tracing::warn!(
+                                    "ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})",
+                                    rollup.platform,
+                                    rollup.liveness_service_provider,
+                                    rollup.cluster_id
+                                );
+                            } else {
+                                tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
+                            }
+                            Error::ClusterMetadataNotFound
+                        })?;
+
+                        let mut_cluster_metadata_end_ms = now_epoch_ms(); // test code
+
+                        if mut_cluster_metadata
+                            .epoch_leader_map
+                            .get(&eth_tx_epoch)
+                            .is_none()
+                        {
+                            mut_cluster_metadata
+                                .epoch_leader_map
+                                .insert(eth_tx_epoch, tx_orderer_address.clone());
+                        }
+
+                        mut_cluster_metadata.update()?;
+                    }
+                }
+            }
+            RawEpochTransaction::EthBundle(_) => {}
+        }
+
+        // Get the address of the epoch leader node
+        let epoch_leader_address = match &self.raw_transaction {
+            RawEpochTransaction::Eth(eth_tx) => eth_tx
+                .epoch
+                .and_then(|epoch| cluster_metadata.epoch_leader_map.get(&epoch).cloned()),
+            RawEpochTransaction::EthBundle(_) => None,
+        };
+
+        // 현재 노드가 현재 epoch의 리더인지 확인
+        let is_current_leader = match &self.raw_transaction {
+            RawEpochTransaction::Eth(_) => {
+                let Some(leader_addr) = epoch_leader_address.as_ref() else {
+                    tracing::error!(
+                        "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
+                        self.rollup_id
+                    );
+                    return Err(Error::GeneralError(
+                        "No leader registered for this transaction epoch in cluster metadata"
+                            .into(),
+                    )
+                    .into());
+                };
+                tx_orderer_address == *leader_addr
+            }
+            RawEpochTransaction::EthBundle(_) => cluster_metadata.is_leader,
+        };
+
+        let platform_block_height = cluster_metadata.platform_block_height;
 
         let cluster = Cluster::get(
             rollup.platform,
@@ -194,7 +209,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterNotFound
         })?;
 
-        if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
+        if is_current_leader {
+            // 현재 노드가 현재 epoch의 리더인 경우
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
                 rollup.liveness_service_provider,
@@ -205,69 +221,63 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 Error::ClusterMetadataNotFound
             })?;
 
+            // let epoch = mut_epoch_metadata.current_epoch();
+            let epoch = match &self.raw_transaction {
+                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_epoch),
+                RawEpochTransaction::EthBundle(_) => cluster_epoch,
+            };
+
             let epoch_metadata_start_ms = now_epoch_ms(); // test code
 
-            let (epoch, transaction_order, transaction_hash, epoch_metadata_end_ms) = {
-                let _lock = MUTEX2.lock();
-                
-                let epoch_metadata_end_ms = now_epoch_ms(); // test code
+            let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
-                let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
+            let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
-                // let epoch = mut_epoch_metadata.current_epoch();
-                let epoch = match &self.raw_transaction {
-                    RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_metadata.epoch),
-                    RawEpochTransaction::EthBundle(_) => cluster_metadata.epoch,
-                };
+            /*
+            if epoch != cluster_metadata.epoch {
+                return Err(Error::GeneralError(format!(
+                    "Epoch mismatch: EpochMetadata epoch={}, ClusterMetadata epoch={}",
+                    epoch, cluster_metadata.epoch,
+                )).into());
+            }
+            */
 
-                /*
-                if epoch != cluster_metadata.epoch {
-                    return Err(Error::GeneralError(format!(
-                        "Epoch mismatch: EpochMetadata epoch={}, ClusterMetadata epoch={}",
-                        epoch, cluster_metadata.epoch,
-                    )).into());
-                }
-                */
+            let transaction_order = mut_epoch_metadata.transaction_order(epoch);
+            let transaction_hash = self.raw_transaction.raw_transaction_hash();
 
-                let transaction_order = mut_epoch_metadata.transaction_order(epoch);
-                let transaction_hash = self.raw_transaction.raw_transaction_hash();
+            mut_epoch_metadata.increment_transaction_order(epoch);
 
-                mut_epoch_metadata.increment_transaction_order(epoch);
+            let is_from_client = self.sender_address.is_none();
 
-                let is_from_client = self.sender_address.is_none();
+            if !is_from_client {
+                let sender_address = self
+                    .sender_address
+                    .as_ref()
+                    .ok_or_else(|| Error::GeneralError("sender_address is None".into()))?;
+                let node_index = cluster
+                    .tx_orderer_rpc_infos
+                    .iter()
+                    .find_map(|(index, info)| {
+                        if info.tx_orderer_address == *sender_address {
+                            Some(*index)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| {
+                        tracing::error!(
+                            "Failed to find node index for sender_address: {:?} in cluster. rollup_id: {:?}, epoch: {}",
+                            sender_address,
+                            self.rollup_id,
+                            epoch
+                        );
+                        Error::GeneralError("Sender address not found in cluster".into())
+                    })?;
 
-                if !is_from_client {
-                    let sender_address = self
-                        .sender_address
-                        .as_ref()
-                        .ok_or_else(|| Error::GeneralError("sender_address is None".into()))?;
-                    let node_index = cluster
-                        .tx_orderer_rpc_infos
-                        .iter()
-                        .find_map(|(index, info)| {
-                            if info.tx_orderer_address == *sender_address {
-                                Some(*index)
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| {
-                            tracing::error!(
-                                "Failed to find node index for sender_address: {:?} in cluster. rollup_id: {:?}, epoch: {}",
-                                sender_address,
-                                self.rollup_id,
-                                epoch
-                            );
-                            Error::GeneralError("Sender address not found in cluster".into())
-                        })?;
+                mut_epoch_metadata.increment_received_transaction_count(epoch, node_index);
+            }
 
-                    mut_epoch_metadata.increment_received_transaction_count(epoch, node_index);
-                }
-
-                mut_epoch_metadata.update()?;
-
-                (epoch, transaction_order, transaction_hash, epoch_metadata_end_ms)
-            };
+            mut_epoch_metadata.update()?;
 
             RawEpochTransactionModel::put_with_transaction_hash(
                 &self.rollup_id,
@@ -348,11 +358,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
 
             let order_commitment = match rollup.order_commitment_type {
-                OrderCommitmentType::TransactionHash => OrderCommitment::Single(
-                    SingleOrderCommitment::TransactionHash(TransactionHashOrderCommitment::new(
-                        transaction_hash.as_string(),
-                    )),
-                ),
+                OrderCommitmentType::TransactionHash => {
+                    OrderCommitment::Single(SingleOrderCommitment::TransactionHash(
+                        TransactionHashOrderCommitment::new(transaction_hash.as_string()),
+                    ))
+                }
                 OrderCommitmentType::Sign => order_commitment,
             };
 
@@ -411,6 +421,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
+                            let redirect_epoch = match &self.raw_transaction {
+                                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_epoch),
+                                RawEpochTransaction::EthBundle(_) => cluster_epoch,
+                            };
+                            REDIRECT_RING.incr(redirect_epoch);
+
                             let handler_end_ms = now_epoch_ms(); // test code
 
                             Ok(SendRawTransactionResponse {
@@ -419,10 +435,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                     start_ms: handler_start_ms,
                                     end_ms: handler_end_ms,
                                 },
-                                cluster_metadata_timings: Some(SendRawTransactionClusterMetadataTimings {
-                                    start_ms: cluster_metadata_start_ms,
-                                    end_ms: cluster_metadata_end_ms,
-                                }),
+                                cluster_metadata_timings: Some(
+                                    SendRawTransactionClusterMetadataTimings {
+                                        start_ms: cluster_metadata_start_ms,
+                                        end_ms: cluster_metadata_end_ms,
+                                    },
+                                ),
                                 epoch_metadata_timings: None,
                                 signer_timings: Some(SendRawTransactionSignerTimings {
                                     start_ms: signer_start_ms,
@@ -504,7 +522,7 @@ pub fn sync_batch_creation(
             batch_number
         );
         */
-        
+
         let other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
         if other_cluster_rpc_url_list.is_empty() {
             return;

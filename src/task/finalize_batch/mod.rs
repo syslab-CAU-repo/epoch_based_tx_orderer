@@ -431,6 +431,6 @@ pub async fn get_raw_transaction_info_list(
         raw_transaction_info_list.len()
     );
     */
-    
+
     Ok(raw_transaction_info_list)
 }

@@ -19,7 +19,7 @@ impl RpcParameter<AppState> for SyncEpochMetadata {
         let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
 
         // tracing::info!("mut_epoch_metadata.last_batched_epoch(before): {:?}", mut_epoch_metadata.last_batched_epoch); // test code
-        
+
         mut_epoch_metadata.last_batched_epoch = Some(self.last_batched_epoch);
 
         // tracing::info!("mut_epoch_metadata.last_batched_epoch(after): {:?}", mut_epoch_metadata.last_batched_epoch); // test code

@@ -6,10 +6,10 @@ use std::{
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use crate::util::clear_dir;
 use crate::types::{
     config::ConfigError, ConfigOption, CONFIG_FILE_NAME, DEFAULT_SIGNING_KEY, SIGNING_KEY_PATH,
 };
+use crate::util::clear_dir;
 
 #[derive(Debug, Deserialize, Parser, Serialize)]
 pub struct ConfigPath {

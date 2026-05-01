@@ -53,12 +53,15 @@ impl RpcParameter<AppState> for GetDigest {
                         Ok(entry) => entry,
                         Err(_) => break,
                     };
-                let tx_hash_bytes = raw_epoch_tx
-                    .raw_transaction_hash()
-                    .as_bytes()
-                    .map_err(|e| {
-                        RpcError::from(Error::GeneralError(format!("invalid tx hash hex: {e:?}")))
-                    })?;
+                let tx_hash_bytes =
+                    raw_epoch_tx
+                        .raw_transaction_hash()
+                        .as_bytes()
+                        .map_err(|e| {
+                            RpcError::from(Error::GeneralError(format!(
+                                "invalid tx hash hex: {e:?}"
+                            )))
+                        })?;
                 epoch_hasher.update(tx_hash_bytes);
                 epoch_tx_count += 1;
                 transaction_order += 1;
@@ -84,12 +87,9 @@ impl RpcParameter<AppState> for GetDigest {
             for batch_tx_order in 0..end_exclusive {
                 let (raw_tx, _is_direct_sent) =
                     RawTransactionModel::get(&rollup_id, batch_number, batch_tx_order)?;
-                let tx_hash_bytes = raw_tx
-                    .raw_transaction_hash()
-                    .as_bytes()
-                    .map_err(|e| {
-                        RpcError::from(Error::GeneralError(format!("invalid tx hash hex: {e:?}")))
-                    })?;
+                let tx_hash_bytes = raw_tx.raw_transaction_hash().as_bytes().map_err(|e| {
+                    RpcError::from(Error::GeneralError(format!("invalid tx hash hex: {e:?}")))
+                })?;
                 batch_hasher.update(tx_hash_bytes);
                 batch_tx_count += 1;
             }

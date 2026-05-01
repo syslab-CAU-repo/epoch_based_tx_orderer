@@ -1,11 +1,7 @@
-use radius_sdk::{
-    kvstore::Model,
-};
+use radius_sdk::kvstore::Model;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    types::{LivenessServiceProvider, Platform},
-};
+use crate::types::{LivenessServiceProvider, Platform};
 
 use std::collections::HashMap;
 
@@ -31,7 +27,7 @@ impl EndSignalMetadata {
         *bitmap |= 1 << node_index;
     }
 
-    /* 
+    /*
     // not used?
     // TODO: remove this function
     // 특정 epoch의 특정 노드 인덱스 비트 확인
@@ -48,7 +44,7 @@ impl EndSignalMetadata {
         if total_nodes == 0 {
             return false;
         }
-        
+
         // 모든 노드의 비트가 설정되어 있는지 확인
         // 예: 5개 노드면 0b11111 (0x1F)와 비교
         let expected_bitmap = if total_nodes < 64 {
@@ -68,7 +64,3 @@ impl EndSignalMetadata {
         self.end_signal_bitmap.get(&epoch).copied().unwrap_or(0)
     }
 }
-    
-    
-
-

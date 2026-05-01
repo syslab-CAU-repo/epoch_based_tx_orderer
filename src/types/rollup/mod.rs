@@ -63,7 +63,7 @@ impl Rollup {
             platform,
             liveness_service_provider,
 
-            max_gas_limit: 0,                   // TODO
+            max_gas_limit: 0,                      // TODO
             max_transaction_count_per_batch: 1024, // TODO
         }
     }

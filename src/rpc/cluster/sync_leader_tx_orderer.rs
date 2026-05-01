@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::atomic::Ordering;
 
 use radius_sdk::json_rpc::server::ProcessPriority;
 
@@ -90,7 +87,10 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
         mut_cluster_metadata.leader_tx_orderer_rpc_info = Some(leader_tx_orderer_rpc_info.clone());
 
         // old_epoch → leader address (only if not already recorded)
-        if !mut_cluster_metadata.epoch_leader_map.contains_key(&self.old_epoch) {
+        if !mut_cluster_metadata
+            .epoch_leader_map
+            .contains_key(&self.old_epoch)
+        {
             mut_cluster_metadata.epoch_leader_map.insert(
                 self.old_epoch,
                 self.leader_change_message
@@ -99,9 +99,10 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
             );
         }
 
-        mut_cluster_metadata.epoch = self.new_epoch;
+        CLUSTER_EPOCH.store(self.new_epoch, Ordering::Relaxed);
 
-        if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&self.new_epoch) {
+        if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&self.new_epoch)
+        {
             if *provisional_leader != self.leader_change_message.next_leader_tx_orderer_address {
                 tracing::error!(
                     "Epoch leader mismatch for epoch {}: provisionally registered {:?}, but actual leader is {:?}; rollup_id={:?}",
@@ -142,7 +143,7 @@ impl RpcParameter<AppState> for SyncLeaderTxOrderer {
                 Error::GeneralError("epoch leader cluster_rpc_url not found".into())
             })?;
 
-        let epoch_sent_transaction_count = mut_cluster_metadata.epoch_sent_transaction_count.get(&self.old_epoch).copied().unwrap_or(0);
+        let epoch_sent_transaction_count = REDIRECT_RING.get(self.old_epoch);
 
         send_end_signal_to_epoch_leader(
             context.clone(),

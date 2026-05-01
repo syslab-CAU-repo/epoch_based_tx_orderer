@@ -17,6 +17,9 @@ Tx_orderer plays a core role in our block-building solution. Working in cluster 
 
 The follower tx_orderer forwards the encrypted transaction to the leader and validates the block commitment made by the leader. The leader tx_orderer issues an order commitment for the encrypted transaction which guarantees that the user transaction will be included in a block and is responsible for registering a block commitment to be validated by followers.
 
+## Redirect Statistics
+Raw transaction redirects from non-leader nodes are counted per epoch with a process-local atomic ring buffer. The ring keeps the latest 4096 epoch slots, which is enough for a broad recent observation window while keeping the send path to fixed-index atomic operations only. If multiple epochs contend for the same slot during overwrite, the counter retries briefly and records skipped increments in a dropped redirect counter for diagnostics.
+
 ## Encrypted Transaction and Order Commitment
 Tx_orderer processes two types of encrypted transactions:
 - [PVDE](https://ethresear.ch/t/mev-resistant-zk-rollups-with-practical-vde-pvde/12677) encrypted transaction

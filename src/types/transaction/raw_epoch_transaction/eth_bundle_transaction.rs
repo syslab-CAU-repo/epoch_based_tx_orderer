@@ -31,4 +31,3 @@ impl EthRawEpochBundleTransaction {
             .map_err(|_| Error::InvalidTransaction)
     }
 }
-

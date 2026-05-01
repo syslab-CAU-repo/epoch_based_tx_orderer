@@ -35,3 +35,4 @@ radius-sdk = { git = "https://github.com/radiusxyz/radius-sdk-rs", rev = "7fbbff
 # radius-sdk = { path = "../radius-sdk-rs/radius-sdk", features = ["full"] }
 
 spin = "0.9"
+intmap = "3.1.3"

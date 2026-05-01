@@ -29,7 +29,7 @@ pub async fn submit_batch_commitment(
         batch_commitment
     );
     */
-    
+
     match rollup.validation_info {
         // TODO: we have to manage the nonce for the register batch commitment.
         ValidationInfo::EigenLayer(_) => {

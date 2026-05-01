@@ -65,8 +65,7 @@ impl RpcParameter<AppState> for AddCluster {
                 let cluster_metadata =
                     ClusterMetadata::new(self.cluster_id.clone(), platform_block_height);
 
-                let end_signal_metadata =
-                    EndSignalMetadata::new();
+                let end_signal_metadata = EndSignalMetadata::new();
 
                 cluster_metadata.put(
                     self.platform,

@@ -1,5 +1,6 @@
 use super::LeaderChangeMessage;
 use crate::rpc::{cluster::sync_leader_tx_orderer, prelude::*};
+use std::sync::atomic::Ordering;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SetLeaderTxOrderer {
@@ -73,16 +74,26 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
         let signer = context.get_signer(rollup.platform).await?;
         let current_tx_orderer_address = signer.address();
 
-        let old_epoch = mut_cluster_metadata.epoch;
+        let old_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
 
         // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
-        if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
-            tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
-            mut_cluster_metadata.epoch_leader_map.insert(old_epoch, self.leader_change_message.current_leader_tx_orderer_address.clone());
+        if !mut_cluster_metadata
+            .epoch_leader_map
+            .contains_key(&old_epoch)
+        {
+            tracing::info!(
+                "old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"
+            ); // test code
+            mut_cluster_metadata.epoch_leader_map.insert(
+                old_epoch,
+                self.leader_change_message
+                    .current_leader_tx_orderer_address
+                    .clone(),
+            );
         }
-        mut_cluster_metadata.epoch = old_epoch + 1;
+        CLUSTER_EPOCH.store(old_epoch + 1, Ordering::Relaxed);
 
-        let new_epoch = mut_cluster_metadata.epoch;
+        let new_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
 
         if let Some(provisional_leader) = mut_cluster_metadata.epoch_leader_map.get(&new_epoch) {
             if *provisional_leader != self.leader_change_message.next_leader_tx_orderer_address {
@@ -96,7 +107,12 @@ impl RpcParameter<AppState> for SetLeaderTxOrderer {
             }
         }
 
-        mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
+        mut_cluster_metadata.epoch_leader_map.insert(
+            new_epoch,
+            self.leader_change_message
+                .next_leader_tx_orderer_address
+                .clone(),
+        );
 
         let epoch_metadata = EpochMetadata::get(&rollup_id).unwrap_or_default();
 

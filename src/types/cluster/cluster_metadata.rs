@@ -1,7 +1,5 @@
-use radius_sdk::{
-    kvstore::Model,
-    signature::Address,
-};
+use dashmap::DashMap;
+use radius_sdk::{kvstore::Model, signature::Address};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -11,7 +9,15 @@ use crate::{
 
 use super::ClusterId;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+
+pub static CLUSTER_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Model)]
 #[kvstore(key(platform: Platform, liveness_service_provider: LivenessServiceProvider, cluster_id: &str))]
@@ -23,10 +29,8 @@ pub struct ClusterMetadata {
 
     // TODO: remove this field
     pub can_process_as_leader: bool, // not used
-    
-    pub leader_tx_orderer_rpc_info: Option<TxOrdererRpcInfo>,
 
-    pub epoch: u64,
+    pub leader_tx_orderer_rpc_info: Option<TxOrdererRpcInfo>,
 
     // epoch별 리더 주소
     // HashMap<epoch, leader node address> 형태
@@ -45,7 +49,6 @@ impl ClusterMetadata {
             is_leader: false,
             can_process_as_leader: false,
             leader_tx_orderer_rpc_info: None,
-            epoch: 0, // start with epoch 0
             epoch_leader_map: HashMap::new(),
             epoch_sent_transaction_count: HashMap::new(),
         }

@@ -97,10 +97,7 @@ impl RawEpochTransaction {
     pub fn get_transaction_gas_limit(&self) -> Result<u64, Error> {
         match self {
             RawEpochTransaction::Eth(eth) => Ok(eth.rollup_transaction()?.gas.as_u64()),
-            RawEpochTransaction::EthBundle(_eth_bundle) => todo!(
-                "eth_bundle max_gas_limit"
-            ),
+            RawEpochTransaction::EthBundle(_eth_bundle) => todo!("eth_bundle max_gas_limit"),
         }
     }
 }
-

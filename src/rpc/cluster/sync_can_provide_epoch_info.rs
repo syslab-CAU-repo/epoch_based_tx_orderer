@@ -18,7 +18,10 @@ impl RpcParameter<AppState> for SyncCanProvideEpochInfo {
 
     async fn handler(self, context: AppState) -> Result<Self::Response, RpcError> {
         let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
-        match mut_epoch_metadata.epoch_transaction_orders.entry(self.epoch) {
+        match mut_epoch_metadata
+            .epoch_transaction_orders
+            .entry(self.epoch)
+        {
             Entry::Occupied(entry) => {
                 tracing::warn!(
                     "epoch_transaction_orders already contains epoch. rollup_id={:?} epoch={} existing_transaction_order={} transaction_order_from_epoch_leader={}",

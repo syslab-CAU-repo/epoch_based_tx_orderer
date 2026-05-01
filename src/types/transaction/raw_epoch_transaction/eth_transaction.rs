@@ -44,4 +44,3 @@ impl EthRawEpochTransaction {
         self.epoch = Some(epoch);
     }
 }
-

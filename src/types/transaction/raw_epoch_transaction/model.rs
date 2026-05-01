@@ -48,4 +48,3 @@ impl RawEpochTransactionModel {
         kvstore()?.get(key)
     }
 }
-

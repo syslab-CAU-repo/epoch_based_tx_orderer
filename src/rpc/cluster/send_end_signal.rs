@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use radius_sdk::signature::Address;
 use tokio::time::{sleep, Duration};
 
-use crate::rpc::{external::{sync_batch_creation, sync_raw_transaction}, prelude::*};
+use crate::rpc::{
+    external::{sync_batch_creation, sync_raw_transaction},
+    prelude::*,
+};
 use crate::task::finalize_batch;
 
 use super::{EnableLeaderProcessing, SyncCanProvideEpochInfo};
@@ -66,7 +69,8 @@ impl RpcParameter<AppState> for SendEndSignal {
         let tx_orderer_address = signer.address().clone();
 
         // 현재 노드의 cluster RPC URL 가져오기
-        let current_node_rpc_info = cluster.get_tx_orderer_rpc_info(&tx_orderer_address)
+        let current_node_rpc_info = cluster
+            .get_tx_orderer_rpc_info(&tx_orderer_address)
             .ok_or_else(|| {
                 tracing::error!(
                     "Failed to get RPC info for current node. tx_orderer_address: {:?}",
@@ -75,7 +79,9 @@ impl RpcParameter<AppState> for SendEndSignal {
                 Error::TxOrdererInfoNotFound
             })?;
 
-        let current_node_cluster_rpc_url = current_node_rpc_info.cluster_rpc_url.clone()
+        let current_node_cluster_rpc_url = current_node_rpc_info
+            .cluster_rpc_url
+            .clone()
             .ok_or_else(|| {
                 tracing::error!(
                     "Cluster RPC URL not found for current node. tx_orderer_address: {:?}",
@@ -101,7 +107,7 @@ impl RpcParameter<AppState> for SendEndSignal {
             );
             return Err(Error::GeneralError("Not a leader node".into()).into());
         }
-        
+
         let node_index = cluster.tx_orderer_rpc_infos.iter().find_map(|(index, info)| {
             if info.tx_orderer_address == self.sender_address {
                 Some(*index)
@@ -262,10 +268,12 @@ impl RpcParameter<AppState> for SendEndSignal {
 
                     mut_end_signal_metadata.set_node_bit(epoch, node_index);
 
-                    let all_nodes_sent_signal = mut_end_signal_metadata.all_nodes_sent_signal(epoch, total_nodes);
+                    let all_nodes_sent_signal =
+                        mut_end_signal_metadata.all_nodes_sent_signal(epoch, total_nodes);
 
                     if all_nodes_sent_signal {
-                        if let Err(e) = CanProvideEpochInfo::add_completed_epoch(&rollup_id, epoch) {
+                        if let Err(e) = CanProvideEpochInfo::add_completed_epoch(&rollup_id, epoch)
+                        {
                             tracing::error!(
                                 "Failed to add completed epoch to CanProvideEpochInfo. rollup_id={:?} epoch={} error={:?}",
                                 rollup_id,
@@ -285,7 +293,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                         return;
                     }
 
-                    if all_nodes_sent_signal {   
+                    if all_nodes_sent_signal {
                         let transaction_order = epoch_metadata.transaction_order(epoch);
 
                         sync_can_provide_epoch_info(
@@ -325,7 +333,8 @@ impl RpcParameter<AppState> for SendEndSignal {
 
         // 모든 노드가 시그널을 보냈는지 확인
         let total_nodes = cluster.tx_orderer_rpc_infos.len();
-        let all_nodes_sent_signal = mut_end_signal_metadata.all_nodes_sent_signal(self.epoch, total_nodes);
+        let all_nodes_sent_signal =
+            mut_end_signal_metadata.all_nodes_sent_signal(self.epoch, total_nodes);
 
         if all_nodes_sent_signal {
             CanProvideEpochInfo::add_completed_epoch(&self.rollup_id, self.epoch).map_err(|e| {
@@ -431,4 +440,3 @@ pub fn sync_can_provide_epoch_info(
 
     // tracing::info!("=== 🔄🕐 sync_can_provide_epoch_info 종료(epoch: {:?}) 🕐🔄 ===", epoch); // test codes
 }
-

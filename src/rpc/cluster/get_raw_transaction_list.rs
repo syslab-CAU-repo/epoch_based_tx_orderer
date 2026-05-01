@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeSet,
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -75,7 +75,7 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             &rollup.cluster_id,
             self.leader_change_message.platform_block_height,
         )?;
-        
+
         let can_provide_epoch_info = match CanProvideEpochInfo::get(&rollup_id) {
             Ok(info) => info,
             Err(err) => {
@@ -87,15 +87,23 @@ impl RpcParameter<AppState> for GetRawTransactionList {
                 CanProvideEpochInfo::default()
             }
         };
-        
+
         if let Err(e) = create_batches_from_epoch(
             context.clone(),
             &rollup_id,
             cluster.clone(),
             can_provide_epoch_info,
-            self.leader_change_message.next_leader_tx_orderer_address.clone(),
-        ).await {
-            tracing::error!("Failed to create batches from epoch - rollup_id: {:?}, error: {:?}", rollup_id, e);
+            self.leader_change_message
+                .next_leader_tx_orderer_address
+                .clone(),
+        )
+        .await
+        {
+            tracing::error!(
+                "Failed to create batches from epoch - rollup_id: {:?}, error: {:?}",
+                rollup_id,
+                e
+            );
         }
 
         let rollup_metadata = match RollupMetadata::get(&rollup_id) {
@@ -267,7 +275,10 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         mut_cluster_metadata.is_leader = is_next_leader;
         mut_cluster_metadata.leader_tx_orderer_rpc_info = Some(leader_tx_orderer_rpc_info.clone());
 
-        let old_epoch = mut_cluster_metadata.epoch;
+        let old_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
+        CLUSTER_EPOCH.store(old_epoch + 1, Ordering::Relaxed);
+
+        let new_epoch = old_epoch + 1;
 
         // tracing::info!("[get_raw_transaction_list]: old_epoch: {:?}", old_epoch); // test code
 
@@ -284,18 +295,28 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             })?;
 
         // old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)
-        if !mut_cluster_metadata.epoch_leader_map.contains_key(&old_epoch) {
+        if !mut_cluster_metadata
+            .epoch_leader_map
+            .contains_key(&old_epoch)
+        {
             // tracing::info!("old_epoch의 리더 RPC URL을 epoch_leader_map에 저장 (이미 존재하지 않을 때만)"); // test code
-            mut_cluster_metadata.epoch_leader_map.insert(old_epoch, self.leader_change_message.current_leader_tx_orderer_address.clone());
+            mut_cluster_metadata.epoch_leader_map.insert(
+                old_epoch,
+                self.leader_change_message
+                    .current_leader_tx_orderer_address
+                    .clone(),
+            );
         }
-        mut_cluster_metadata.epoch = old_epoch + 1;
-
-        let new_epoch = mut_cluster_metadata.epoch;
 
         // tracing::info!("[get_raw_transaction_list]: new_epoch: {:?}", new_epoch); // test code
 
         // new_epoch의 리더 RPC URL을 epoch_leader_map에 저장
-        mut_cluster_metadata.epoch_leader_map.insert(new_epoch, self.leader_change_message.next_leader_tx_orderer_address.clone());
+        mut_cluster_metadata.epoch_leader_map.insert(
+            new_epoch,
+            self.leader_change_message
+                .next_leader_tx_orderer_address
+                .clone(),
+        );
 
         let batch_number = mut_rollup_metadata.batch_number;
         let transaction_order = mut_rollup_metadata.transaction_order;
@@ -424,7 +445,7 @@ pub async fn sync_leader_tx_orderer(
     transaction_order: u64,
     provided_batch_number: u64,
     provided_transaction_order: i64,
-    old_epoch: u64, 
+    old_epoch: u64,
     new_epoch: u64,
     epoch_metadata: EpochMetadata,
 ) {
@@ -449,18 +470,20 @@ pub async fn sync_leader_tx_orderer(
             .collect();
 
         let parameter = SyncLeaderTxOrderer {
-            leader_change_message:      leader_change_message.clone(),
-            rollup_signature:           rollup_signature,
-            batch_number:               batch_number,
-            transaction_order:          transaction_order,
-            provided_batch_number:      provided_batch_number,
+            leader_change_message: leader_change_message.clone(),
+            rollup_signature: rollup_signature,
+            batch_number: batch_number,
+            transaction_order: transaction_order,
+            provided_batch_number: provided_batch_number,
             provided_transaction_order: provided_transaction_order,
-            old_epoch:                  old_epoch, 
-            new_epoch:                  new_epoch,
-            epoch_metadata:             epoch_metadata,
+            old_epoch: old_epoch,
+            new_epoch: new_epoch,
+            epoch_metadata: epoch_metadata,
         };
 
-        let current_leader_tx_orderer_address = leader_change_message.current_leader_tx_orderer_address.clone();
+        let current_leader_tx_orderer_address = leader_change_message
+            .current_leader_tx_orderer_address
+            .clone();
 
         if next_leader_tx_orderer_rpc_info.tx_orderer_address != current_leader_tx_orderer_address {
             // Directly request the next leader tx_orderer to sync
@@ -585,7 +608,7 @@ fn fetch_and_append_transactions(
 // 1. 함수 목적 : current_leader가 현 시점에 처리 완료된 epoch까지 가져와서 batch 기반으로 다시 ordering 하는 함수
 // 2. 입력값 : can_provide_epoch_info, next_leader_tx_orderer_address
 // 3. 출력값 : 없음
-// 4. side effects : get_raw_transaction_list 요청을 받는 노드가 current_leader라고 가정하고 만들었음. 
+// 4. side effects : get_raw_transaction_list 요청을 받는 노드가 current_leader라고 가정하고 만들었음.
 //      current_leader가 아닌 노드가 get_raw_transaction_list 요청을 받아 이 함수가 실행되면 결과 장담 X
 async fn create_batches_from_epoch(
     context: AppState,
@@ -625,7 +648,7 @@ async fn create_batches_from_epoch(
                     Err(_) => {
                         ok_to_process = false;
                         break;
-                    },
+                    }
                 };
         }
 
@@ -746,10 +769,7 @@ async fn create_batches_from_epoch(
     Ok(())
 }
 
-fn get_consecutive_epochs(
-    completed_epoch: &BTreeSet<u64>,
-    last_batched_epoch: u64,
-) -> Vec<u64> {
+fn get_consecutive_epochs(completed_epoch: &BTreeSet<u64>, last_batched_epoch: u64) -> Vec<u64> {
     let mut result = Vec::new();
     let mut expected = last_batched_epoch + 1;
 
@@ -797,7 +817,9 @@ pub async fn sync_epoch_metadata(
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
         // tracing::info!("        [sync_epoch_metadata]: No cluster RPC URLs available for synchronization");
-        return Err(Error::GeneralError("No cluster RPC URLs available for synchronization".into()));
+        return Err(Error::GeneralError(
+            "No cluster RPC URLs available for synchronization".into(),
+        ));
     }
 
     if let Some(next_leader_tx_orderer_rpc_info) =
@@ -806,9 +828,9 @@ pub async fn sync_epoch_metadata(
         // tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_rpc_info found"); // test code
 
         let next_leader_tx_orderer_cluster_rpc_url = next_leader_tx_orderer_rpc_info
-                .cluster_rpc_url
-                .clone()
-                .unwrap();
+            .cluster_rpc_url
+            .clone()
+            .unwrap();
 
         // tracing::info!("        [sync_epoch_metadata]: next_leader_tx_orderer_cluster_rpc_url: {:?}", next_leader_tx_orderer_cluster_rpc_url); // test code
 
@@ -849,10 +871,10 @@ pub async fn sync_epoch_metadata(
         match &next_leader_result {
             Ok(()) => {
                 // tracing::info!("        [sync_epoch_metadata]: next_leader request finished ok url={}", next_leader_tx_orderer_cluster_rpc_url)
-            },
+            }
             Err(e) => {
                 // tracing::warn!("        [sync_epoch_metadata]: next_leader request failed url={} error={:?}", next_leader_tx_orderer_cluster_rpc_url, e)
-            },
+            }
         }
 
         // Fire and forget to the rest of the cluster nodes asynchronously
@@ -873,12 +895,7 @@ pub async fn sync_epoch_metadata(
 
             context
                 .rpc_client()
-                .fire_and_forget_multicast(
-                    urls,
-                    SyncEpochMetadata::method(),
-                    &parameter,
-                    Id::Null,
-                )
+                .fire_and_forget_multicast(urls, SyncEpochMetadata::method(), &parameter, Id::Null)
                 .await;
 
             /*
