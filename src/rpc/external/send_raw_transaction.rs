@@ -119,12 +119,14 @@ impl RpcParameter<AppState> for SendRawTransaction {
         };
 
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
-        match &mut self.raw_transaction {
+        let epoch = match &mut self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => {
                 if eth_tx.epoch.is_none() {
                     // If the transaction is from the client
                     // Set the epoch
                     eth_tx.set_epoch(cluster_epoch);
+
+                    eth_tx.epoch.unwrap()
                 } else {
                     let eth_tx_epoch = eth_tx.epoch.unwrap();
                     if eth_tx_epoch > cluster_epoch {
@@ -164,10 +166,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                         mut_cluster_metadata.update()?;
                     }
+                    eth_tx_epoch
                 }
             }
-            RawEpochTransaction::EthBundle(_) => {}
-        }
+            RawEpochTransaction::EthBundle(_) => cluster_epoch,
+        };
 
         // Get the address of the epoch leader node
         let epoch_leader_address = match &self.raw_transaction {
@@ -182,14 +185,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
             RawEpochTransaction::Eth(_) => {
                 let Some(leader_addr) = epoch_leader_address.as_ref() else {
                     tracing::error!(
-                        "No leader in epoch_leader_map for this transaction epoch; rollup_id={:?}",
-                        self.rollup_id
+                        "No leader in epoch_leader_map for this transaction epoch; epoch={}",
+                        epoch
                     );
                     return Err(Error::GeneralError(
-                        "No leader registered for this transaction epoch in cluster metadata"
-                            .into(),
-                    )
-                    .into());
+                        format!("No leader registered for this transaction epoch in cluster metadata; epoch={}", epoch)
+                    ).into());
                 };
                 tx_orderer_address == *leader_addr
             }
@@ -220,12 +221,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 tracing::error!("Failed to get cluster metadata: {:?}", error);
                 Error::ClusterMetadataNotFound
             })?;
-
-            // let epoch = mut_epoch_metadata.current_epoch();
-            let epoch = match &self.raw_transaction {
-                RawEpochTransaction::Eth(eth_tx) => eth_tx.epoch.unwrap_or(cluster_epoch),
-                RawEpochTransaction::EthBundle(_) => cluster_epoch,
-            };
 
             let epoch_metadata_start_ms = now_epoch_ms(); // test code
 
