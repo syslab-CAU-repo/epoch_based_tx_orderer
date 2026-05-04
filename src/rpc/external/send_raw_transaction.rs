@@ -99,7 +99,16 @@ impl RpcParameter<AppState> for SendRawTransaction {
             
             let cluster_epoch = CLUSTER_EPOCH.load(Ordering::Relaxed);
 
-            REDIRECT_RING.incr(cluster_epoch);
+            match &mut self.raw_transaction {
+                RawEpochTransaction::Eth(eth_tx) => {
+                    if eth_tx.epoch.is_none() { // If the transaction is from the client
+                        eth_tx.set_epoch(cluster_epoch);
+                    }
+                }
+                RawEpochTransaction::EthBundle(_) => {}
+            }
+
+            REDIRECT_RING.incr(cluster_epoch); // increment redirect count
 
             cluster_epoch
         };
@@ -116,63 +125,55 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterMetadataNotFound
         })?;
 
-        let mut provisional_leader = false;
-
         let cluster_metadata_end_ms = now_epoch_ms(); // test code
 
+        let mut provisional_leader = false;
+
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
-        let epoch = match &mut self.raw_transaction {
+        let tx_epoch = match &mut self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => {
-                if eth_tx.epoch.is_none() {
-                    // If the transaction is from the client
-                    // Set the epoch
-                    eth_tx.set_epoch(cluster_epoch);
+                let eth_tx_epoch = eth_tx.epoch.unwrap();
+                if eth_tx_epoch > cluster_epoch {
+                    // The transaction already has epoch/leader set (not from a client)
+                    // Provisional leader
+                    provisional_leader = true;
 
-                    eth_tx.epoch.unwrap()
-                } else {
-                    let eth_tx_epoch = eth_tx.epoch.unwrap();
-                    if eth_tx_epoch > cluster_epoch {
-                        // The transaction already has epoch/leader set (not from a client)
-                        // Provisional leader
-                        provisional_leader = true;
+                    let mut_cluster_metadata_start_ms = now_epoch_ms(); // test code
 
-                        let mut_cluster_metadata_start_ms = now_epoch_ms(); // test code
-
-                        let mut mut_cluster_metadata = ClusterMetadata::get_mut(
-                            rollup.platform,
-                            rollup.liveness_service_provider,
-                            &rollup.cluster_id,
-                        )
-                        .map_err(|e| {
-                            if e.is_none_type() {
-                                tracing::warn!(
-                                    "ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})",
-                                    rollup.platform,
-                                    rollup.liveness_service_provider,
-                                    rollup.cluster_id
-                                );
-                            } else {
-                                tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
-                            }
-                            Error::ClusterMetadataNotFound
-                        })?;
-
-                        let mut_cluster_metadata_end_ms = now_epoch_ms(); // test code
-
-                        if mut_cluster_metadata
-                            .epoch_leader_map
-                            .get(&eth_tx_epoch)
-                            .is_none()
-                        {
-                            mut_cluster_metadata
-                                .epoch_leader_map
-                                .insert(eth_tx_epoch, tx_orderer_address.clone());
+                    let mut mut_cluster_metadata = ClusterMetadata::get_mut(
+                        rollup.platform,
+                        rollup.liveness_service_provider,
+                        &rollup.cluster_id,
+                    )
+                    .map_err(|e| {
+                        if e.is_none_type() {
+                            tracing::warn!(
+                                "ClusterMetadata missing (NoneType). key=({:?}, {:?}, {:?})",
+                                rollup.platform,
+                                rollup.liveness_service_provider,
+                                rollup.cluster_id
+                            );
+                        } else {
+                            tracing::error!("ClusterMetadata get_mut failed: {:?}", e);
                         }
+                        Error::ClusterMetadataNotFound
+                    })?;
 
-                        mut_cluster_metadata.update()?;
+                    let mut_cluster_metadata_end_ms = now_epoch_ms(); // test code
+
+                    if mut_cluster_metadata
+                        .epoch_leader_map
+                        .get(&eth_tx_epoch)
+                        .is_none()
+                    {
+                        mut_cluster_metadata
+                            .epoch_leader_map
+                            .insert(eth_tx_epoch, tx_orderer_address.clone());
                     }
-                    eth_tx_epoch
+
+                    mut_cluster_metadata.update()?;
                 }
+                eth_tx_epoch
             }
             RawEpochTransaction::EthBundle(_) => cluster_epoch,
         };
@@ -194,10 +195,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         let Some(leader_addr) = epoch_leader_address.as_ref() else {
                             tracing::error!(
                                 "No leader in epoch_leader_map for this transaction epoch; epoch={}",
-                                epoch
+                                tx_epoch
                             );
                             return Err(Error::GeneralError(
-                                format!("No leader registered for this transaction epoch in cluster metadata; epoch={}", epoch)
+                                format!("No leader registered for this transaction epoch in cluster metadata; epoch={}", tx_epoch)
                             ).into());
                         };
                         *leader_addr == tx_orderer_address
@@ -239,10 +240,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
             */
 
-            let transaction_order = mut_epoch_metadata.transaction_order(epoch);
+            let transaction_order = mut_epoch_metadata.transaction_order(tx_epoch);
             let transaction_hash = self.raw_transaction.raw_transaction_hash();
 
-            mut_epoch_metadata.increment_transaction_order(epoch);
+            mut_epoch_metadata.increment_transaction_order(tx_epoch);
 
             let is_from_client = self.sender_address.is_none();
 
@@ -266,12 +267,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
                             "Failed to find node index for sender_address: {:?} in cluster. rollup_id: {:?}, epoch: {}",
                             sender_address,
                             self.rollup_id,
-                            epoch
+                            tx_epoch
                         );
                         Error::GeneralError("Sender address not found in cluster".into())
                     })?;
 
-                mut_epoch_metadata.increment_received_transaction_count(epoch, node_index);
+                mut_epoch_metadata.increment_received_transaction_count(tx_epoch, node_index);
             }
 
             mut_epoch_metadata.update()?;
@@ -285,7 +286,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             RawEpochTransactionModel::put(
                 &self.rollup_id,
-                epoch,
+                tx_epoch,
                 transaction_order,
                 self.raw_transaction.clone(),
                 true,
@@ -304,19 +305,19 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 self.rollup_id.clone(),
                 rollup.order_commitment_type,
                 transaction_hash.clone(),
-                epoch,
+                tx_epoch,
                 transaction_order,
                 pre_merkle_path,
             )
             .await?;
 
-            order_commitment.put(&self.rollup_id, epoch, transaction_order)?;
+            order_commitment.put(&self.rollup_id, tx_epoch, transaction_order)?;
 
             sync_epoch_raw_transaction(
                 context.clone(),
                 cluster,
                 self.rollup_id,
-                epoch,
+                tx_epoch,
                 transaction_order,
                 self.raw_transaction.clone(),
                 order_commitment.clone(),
@@ -331,7 +332,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     RawEpochTransaction::Eth(eth_raw_transaction) => {
                         let params = serde_json::json!([
                             eth_raw_transaction.raw_transaction,
-                            epoch,
+                            tx_epoch,
                             transaction_order
                         ]);
 
