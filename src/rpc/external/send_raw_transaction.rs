@@ -104,8 +104,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
             cluster_epoch
         };
 
-        self.sender_address = Some(tx_orderer_address.clone());
-
         let cluster_metadata_start_ms = now_epoch_ms(); // test code
 
         let cluster_metadata = ClusterMetadata::get(
