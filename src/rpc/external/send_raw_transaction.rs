@@ -103,12 +103,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 RawEpochTransaction::Eth(eth_tx) => {
                     if eth_tx.epoch.is_none() { // If the transaction is from the client
                         eth_tx.set_epoch(cluster_epoch);
+                        REDIRECT_RING.incr(cluster_epoch); // increment redirect count
                     }
                 }
                 RawEpochTransaction::EthBundle(_) => {}
             }
-
-            REDIRECT_RING.incr(cluster_epoch); // increment redirect count
 
             cluster_epoch
         };
@@ -129,7 +128,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
         let mut provisional_leader = false;
 
-        // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
+        // Get the transaction epoch
         let tx_epoch = match &mut self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => {
                 let eth_tx_epoch = eth_tx.epoch.unwrap();
