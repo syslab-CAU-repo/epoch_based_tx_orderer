@@ -85,6 +85,7 @@ impl EpochMetadata {
         counts[node_index] = counts[node_index].saturating_add(1);
     }
 
+    /*
     pub fn update_received_transaction_count(
         &mut self,
         epoch: u64,
@@ -102,4 +103,5 @@ impl EpochMetadata {
 
         counts[node_index] = received_transaction_count;
     }
+    */
 }
