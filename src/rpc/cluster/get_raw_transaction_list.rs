@@ -337,10 +337,12 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             .expect("Time went backwards")
             .as_nanos();
 
+        /*
         tracing::info!(
             "get_raw_transaction_list - total take time: {:?}",
             end_get_raw_transaction_list_time - start_get_raw_transaction_list_time
         );
+        */
 
         let shared_channel_infos = context.shared_channel_infos();
         let mev_searcher_infos = MevSearcherInfos::get_or(MevSearcherInfos::default).unwrap();

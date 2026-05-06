@@ -322,11 +322,12 @@ impl RpcParameter<AppState> for SendRawTransaction {
             .expect("Time went backwards")
             .as_nanos();
 
+            /*
             tracing::info!(
                 "send_raw_transaction(leader) - total take time: {:?}",
                 end_send_raw_transaction_time - start_send_raw_transaction_time
             );
-
+            */
 
             let order_commitment = match rollup.order_commitment_type {
                 OrderCommitmentType::TransactionHash => OrderCommitment::Single(
