@@ -12,7 +12,45 @@ use crate::{
     types::*,
 };
 
-static PROCESSED_TX_COUNT: AtomicU64 = AtomicU64::new(0);
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionHandlerTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionClusterMetadataTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionEpochMetadataTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionSignerTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionResponse {
+    pub order_commitment: OrderCommitment,
+    pub handler_timings: SendRawTransactionHandlerTimings,
+    pub cluster_metadata_timings: SendRawTransactionClusterMetadataTimings,
+    pub epoch_metadata_timings: SendRawTransactionEpochMetadataTimings,
+    pub signer_timings: SendRawTransactionSignerTimings,
+}
+
+fn now_epoch_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_millis()
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransaction {
@@ -22,7 +60,7 @@ pub struct SendRawTransaction {
 }
 
 impl RpcParameter<AppState> for SendRawTransaction {
-    type Response = OrderCommitment;
+    type Response = SendRawTransactionResponse;
 
     fn method() -> &'static str {
         "send_raw_transaction"
@@ -34,15 +72,23 @@ impl RpcParameter<AppState> for SendRawTransaction {
             .expect("Time went backwards")
             .as_nanos();
 
+        let handler_start_ms = now_epoch_ms();
+
         let rollup = Rollup::get(&self.rollup_id)?;
+
+        let signer_start_ms = now_epoch_ms(); // test code
 
         let signer = context.get_signer(rollup.platform).await.map_err(|_| {
             tracing::error!("Signer not found for platform {:?}", rollup.platform);
             Error::SignerNotFound
         })?;
 
+        let signer_end_ms = now_epoch_ms(); // test code
+
         // Get the address of the current tx orderer
         let tx_orderer_address = signer.address().clone();
+
+        let cluster_metadata_start_ms = now_epoch_ms(); // test code
         
         let mut mut_cluster_metadata = ClusterMetadata::get_mut(
             rollup.platform,
@@ -121,7 +167,13 @@ impl RpcParameter<AppState> for SendRawTransaction {
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
             mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
+            let cluster_metadata_end_ms = now_epoch_ms(); // test code
+
+            let epoch_metadata_start_ms = now_epoch_ms(); // test code
+
             let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
+
+            let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
@@ -184,6 +236,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
 
             mut_epoch_metadata.update()?;
+
+            let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
             RawEpochTransactionModel::put_with_transaction_hash(
                 &self.rollup_id,
@@ -274,14 +328,36 @@ impl RpcParameter<AppState> for SendRawTransaction {
             );
 
 
-            match rollup.order_commitment_type {
-                OrderCommitmentType::TransactionHash => Ok(OrderCommitment::Single(
+            let order_commitment = match rollup.order_commitment_type {
+                OrderCommitmentType::TransactionHash => OrderCommitment::Single(
                     SingleOrderCommitment::TransactionHash(TransactionHashOrderCommitment::new(
                         transaction_hash.as_string(),
                     )),
-                )),
-                OrderCommitmentType::Sign => Ok(order_commitment),
-            }
+                ),
+                OrderCommitmentType::Sign => order_commitment,
+            };
+
+            let handler_end_ms = now_epoch_ms(); // test code
+
+            Ok(SendRawTransactionResponse {
+                order_commitment,
+                handler_timings: SendRawTransactionHandlerTimings {
+                    start_ms: handler_start_ms,
+                    end_ms: handler_end_ms,
+                },
+                cluster_metadata_timings: SendRawTransactionClusterMetadataTimings {
+                    start_ms: cluster_metadata_start_ms,
+                    end_ms: cluster_metadata_end_ms,
+                },
+                epoch_metadata_timings: SendRawTransactionEpochMetadataTimings {
+                    start_ms: epoch_metadata_start_ms,
+                    end_ms: epoch_metadata_end_ms,
+                },
+                signer_timings: SendRawTransactionSignerTimings {
+                    start_ms: signer_start_ms,
+                    end_ms: signer_end_ms,
+                },
+            })
         } else {
             // === Not the leader: forward to the leader node ===
             let epoch = match &self.raw_transaction {
@@ -295,6 +371,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
             self.sender_address = Some(tx_orderer_address.clone());
 
             mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
+
+            let cluster_metadata_end_ms = now_epoch_ms(); // test code
 
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
@@ -320,7 +398,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                     match context
                         .rpc_client()
-                        .request(
+                        .request::<&SendRawTransaction, SendRawTransactionResponse>(
                             leader_external_rpc_url,
                             SendRawTransaction::method(),
                             &self,
@@ -329,6 +407,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .await
                     {
                         Ok(response) => {
+                            let handler_end_ms = now_epoch_ms(); // test code
+
+                            /*
                             let end_send_raw_transaction_time = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .expect("Time went backwards")
@@ -337,8 +418,24 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                 "send_raw_transaction(non-leader) - total take time: {:?}",
                                 end_send_raw_transaction_time - start_send_raw_transaction_time
                             );
-                            
-                            Ok(response)
+                            */
+
+                            Ok(SendRawTransactionResponse {
+                                order_commitment: response.order_commitment.clone(),
+                                handler_timings: SendRawTransactionHandlerTimings {
+                                    start_ms: handler_start_ms,
+                                    end_ms: handler_end_ms,
+                                },
+                                cluster_metadata_timings: SendRawTransactionClusterMetadataTimings {
+                                    start_ms: cluster_metadata_start_ms,
+                                    end_ms: cluster_metadata_end_ms,
+                                },
+                                epoch_metadata_timings: response.epoch_metadata_timings,
+                                signer_timings: SendRawTransactionSignerTimings {
+                                    start_ms: signer_start_ms,
+                                    end_ms: signer_end_ms,
+                                },
+                            })
                         }
                         Err(error) => {
                             tracing::error!(
