@@ -37,12 +37,20 @@ pub struct SendRawTransactionSignerTimings {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionRedirectRpcTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransactionResponse {
     pub order_commitment: OrderCommitment,
+    pub redirect: bool,
     pub handler_timings: SendRawTransactionHandlerTimings,
     pub cluster_metadata_timings: SendRawTransactionClusterMetadataTimings,
     pub epoch_metadata_timings: SendRawTransactionEpochMetadataTimings,
     pub signer_timings: SendRawTransactionSignerTimings,
+    pub redirect_rpc_timings: Option<SendRawTransactionRedirectRpcTimings>,
 }
 
 fn now_epoch_ms() -> u128 {
@@ -340,6 +348,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             Ok(SendRawTransactionResponse {
                 order_commitment,
+                redirect: false,
                 handler_timings: SendRawTransactionHandlerTimings {
                     start_ms: handler_start_ms,
                     end_ms: handler_end_ms,
@@ -356,6 +365,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     start_ms: signer_start_ms,
                     end_ms: signer_end_ms,
                 },
+                redirect_rpc_timings: None,
             })
         } else {
             // === Not the leader: forward to the leader node ===
@@ -395,7 +405,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         .clone()
                         .ok_or(Error::EmptyLeaderClusterRpcUrl)?;
 
-                    match context
+                    let redirect_rpc_start_ms = now_epoch_ms();
+                    let rpc_result = context
                         .rpc_client()
                         .request::<&SendRawTransaction, SendRawTransactionResponse>(
                             leader_external_rpc_url,
@@ -403,8 +414,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
                             &self,
                             Id::Null,
                         )
-                        .await
-                    {
+                        .await;
+                    let redirect_rpc_end_ms = now_epoch_ms();
+
+                    match rpc_result {
                         Ok(response) => {
                             let handler_end_ms = now_epoch_ms(); // test code
 
@@ -421,6 +434,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                             Ok(SendRawTransactionResponse {
                                 order_commitment: response.order_commitment.clone(),
+                                redirect: true,
                                 handler_timings: SendRawTransactionHandlerTimings {
                                     start_ms: handler_start_ms,
                                     end_ms: handler_end_ms,
@@ -434,6 +448,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                     start_ms: signer_start_ms,
                                     end_ms: signer_end_ms,
                                 },
+                                redirect_rpc_timings: Some(SendRawTransactionRedirectRpcTimings {
+                                    start_ms: redirect_rpc_start_ms,
+                                    end_ms: redirect_rpc_end_ms,
+                                }),
                             })
                         }
                         Err(error) => {
