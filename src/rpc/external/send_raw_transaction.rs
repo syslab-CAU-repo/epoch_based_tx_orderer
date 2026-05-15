@@ -237,8 +237,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             mut_epoch_metadata.update()?;
 
-            let epoch_metadata_end_ms = now_epoch_ms(); // test code
-
             RawEpochTransactionModel::put_with_transaction_hash(
                 &self.rollup_id,
                 &transaction_hash,
