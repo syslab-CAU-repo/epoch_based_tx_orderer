@@ -51,6 +51,7 @@ pub struct SendRawTransactionResponse {
     pub epoch_metadata_timings: SendRawTransactionEpochMetadataTimings,
     pub signer_timings: SendRawTransactionSignerTimings,
     pub redirect_rpc_timings: Option<SendRawTransactionRedirectRpcTimings>,
+    pub leader_cluster_metadata_timings: Option<SendRawTransactionClusterMetadataTimings>,
 }
 
 fn now_epoch_ms() -> u128 {
@@ -366,6 +367,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     end_ms: signer_end_ms,
                 },
                 redirect_rpc_timings: None,
+                leader_cluster_metadata_timings: None,
             })
         } else {
             // === Not the leader: forward to the leader node ===
@@ -452,6 +454,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                     start_ms: redirect_rpc_start_ms,
                                     end_ms: redirect_rpc_end_ms,
                                 }),
+                                leader_cluster_metadata_timings: Some(
+                                    response.cluster_metadata_timings.clone(),
+                                ),
                             })
                         }
                         Err(error) => {
