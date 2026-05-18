@@ -113,6 +113,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
             Error::ClusterMetadataNotFound
         })?;
 
+        let cluster_metadata_end_ms = now_epoch_ms(); // test code
+
         // If the transaction is from a client, set its epoch to the ClusterMetadata's epoch
         match &mut self.raw_transaction {
             RawEpochTransaction::Eth(eth_tx) => {
@@ -132,17 +134,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
             RawEpochTransaction::EthBundle(_) => {}
         }
-
-        let cluster = Cluster::get(
-            rollup.platform,
-            rollup.liveness_service_provider,
-            &rollup.cluster_id,
-            mut_cluster_metadata.platform_block_height,
-        )
-        .map_err(|error| {
-            tracing::error!("Failed to get cluster: {:?}", error);
-            Error::ClusterNotFound
-        })?;
 
         // Get the address of the epoch leader node
         let epoch_leader_address = match &self.raw_transaction {
@@ -176,14 +167,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
             mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
-            let cluster_metadata_end_ms = now_epoch_ms(); // test code
-
-            let epoch_metadata_start_ms = now_epoch_ms(); // test code
-
-            let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
-
-            let epoch_metadata_end_ms = now_epoch_ms(); // test code
-
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
                 rollup.liveness_service_provider,
@@ -193,6 +176,23 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 tracing::error!("Failed to get cluster metadata: {:?}", error);
                 Error::ClusterMetadataNotFound
             })?;
+
+            let cluster = Cluster::get(
+                rollup.platform,
+                rollup.liveness_service_provider,
+                &rollup.cluster_id,
+                cluster_metadata.platform_block_height,
+            )
+            .map_err(|error| {
+                tracing::error!("Failed to get cluster: {:?}", error);
+                Error::ClusterNotFound
+            })?;
+
+            let epoch_metadata_start_ms = now_epoch_ms(); // test code
+
+            let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
+
+            let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
             // let epoch = mut_epoch_metadata.current_epoch();
             let epoch = match &self.raw_transaction {
@@ -383,8 +383,6 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
-            let cluster_metadata_end_ms = now_epoch_ms(); // test code
-
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
                 rollup.liveness_service_provider,
@@ -393,6 +391,17 @@ impl RpcParameter<AppState> for SendRawTransaction {
             .map_err(|error| {
                 tracing::error!("Failed to get cluster metadata: {:?}", error);
                 Error::ClusterMetadataNotFound
+            })?;
+
+            let cluster = Cluster::get(
+                rollup.platform,
+                rollup.liveness_service_provider,
+                &rollup.cluster_id,
+                cluster_metadata.platform_block_height,
+            )
+            .map_err(|error| {
+                tracing::error!("Failed to get cluster: {:?}", error);
+                Error::ClusterNotFound
             })?;
 
             let leader_tx_orderer_rpc_info = epoch_leader_address
