@@ -85,6 +85,12 @@ pub struct SendRawTransactionSyncEpochTXTimings {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SendRawTransactionEpochMetadataFullTimings {
+    pub start_ms: u128,
+    pub end_ms: u128,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendRawTransactionResponse {
     pub order_commitment: OrderCommitment,
     pub redirect: bool,
@@ -102,6 +108,7 @@ pub struct SendRawTransactionResponse {
     pub TX_put_timings: SendRawTransactionTXPutTimings,
     pub OC_put_timings: SendRawTransactionOCPutTimings,
     pub sync_epoch_TX_timings: SendRawTransactionSyncEpochTXTimings,
+    pub epoch_metadata_full_timings: SendRawTransactionEpochMetadataFullTimings,
 }
 
 fn now_epoch_ms() -> u128 {
@@ -471,6 +478,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     start_ms: sync_epoch_tx_start_ms,
                     end_ms: sync_epoch_tx_end_ms,
                 },
+                epoch_metadata_full_timings: SendRawTransactionEpochMetadataFullTimings {
+                    start_ms: epoch_metadata_start_ms,
+                    end_ms: tx_put_start_ms,
+                },
             })
         } else {
             // === Not the leader: forward to the leader node ===
@@ -584,6 +595,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                 TX_put_timings: response.TX_put_timings,
                                 OC_put_timings: response.OC_put_timings,
                                 sync_epoch_TX_timings: response.sync_epoch_TX_timings,
+                                epoch_metadata_full_timings: response.epoch_metadata_full_timings,
                             })
                         }
                         Err(error) => {
