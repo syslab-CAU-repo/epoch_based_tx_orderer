@@ -215,9 +215,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
         };
 
         if is_current_leader { // 현재 노드가 현재 epoch의 리더인 경우
-            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-
             let cluster_update_commit_ms = now_epoch_ms();
+
+            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
@@ -295,10 +295,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
                 mut_epoch_metadata.increment_received_transaction_count(epoch, node_index);
             }
-
-            mut_epoch_metadata.update()?;
-
+            
             let epoch_update_commit_ms = now_epoch_ms();
+            
+            mut_epoch_metadata.update()?;
 
             let tx_put_start_ms = now_epoch_ms();
 
@@ -346,11 +346,11 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             let issue_order_commitment_end_ms = now_epoch_ms();
 
-            let OC_put_start_ms = now_epoch_ms();
+            let oc_put_start_ms = now_epoch_ms();
 
             order_commitment.put(&self.rollup_id, epoch, transaction_order)?;
 
-            let OC_put_end_ms = now_epoch_ms();
+            let oc_put_end_ms = now_epoch_ms();
 
             let sync_epoch_tx_start_ms = now_epoch_ms();
 
@@ -437,7 +437,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     end_ms: epoch_metadata_end_ms,
                 },
                 epoch_update_timings: SendRawTransactionEpochUpdateTimings {
-                    start_ms: epoch_metadata_start_ms,
+                    start_ms: epoch_metadata_end_ms,
                     end_ms: epoch_update_commit_ms,
                 },
                 signer_timings: SendRawTransactionSignerTimings {
@@ -464,8 +464,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
                     end_ms: tx_put_end_ms,
                 },
                 OC_put_timings: SendRawTransactionOCPutTimings {
-                    start_ms: OC_put_start_ms,
-                    end_ms: OC_put_end_ms,
+                    start_ms: oc_put_start_ms,
+                    end_ms: oc_put_end_ms,
                 },
                 sync_epoch_TX_timings: SendRawTransactionSyncEpochTXTimings {
                     start_ms: sync_epoch_tx_start_ms,
@@ -484,9 +484,9 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             self.sender_address = Some(tx_orderer_address.clone());
 
-            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
-
             let cluster_update_commit_ms = now_epoch_ms();
+
+            mut_cluster_metadata.update()?; // release the lock on ClusterMetadata
 
             let cluster_metadata = ClusterMetadata::get(
                 rollup.platform,
@@ -573,7 +573,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                                     response.cluster_metadata_timings.clone(),
                                 ),
                                 cluster_update_timings: SendRawTransactionClusterUpdateTimings {
-                                    start_ms: cluster_metadata_start_ms,
+                                    start_ms: cluster_metadata_end_ms,
                                     end_ms: cluster_update_commit_ms,
                                 },
                                 leader_cluster_update_timings: Some(
