@@ -348,6 +348,7 @@ impl RpcParameter<AppState> for SendRawTransaction {
                 epoch,
                 transaction_order,
                 pre_merkle_path,
+                Some(signer.clone()),
             )
             .await?;
 

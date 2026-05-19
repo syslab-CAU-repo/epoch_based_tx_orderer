@@ -1,3 +1,5 @@
+use radius_sdk::signature::PrivateKeySigner;
+
 use crate::{
     rpc::{cluster::SyncEncryptedTransaction, prelude::*},
     task::finalize_batch,
@@ -81,6 +83,7 @@ impl RpcParameter<AppState> for SendEncryptedTransaction {
                 batch_number,
                 transaction_order,
                 pre_merkle_path,
+                None,
             )
             .await?;
             order_commitment.put(&self.rollup_id, batch_number, transaction_order)?;
@@ -215,6 +218,7 @@ pub async fn issue_order_commitment(
     epoch: u64,
     transaction_order: u64,
     pre_merkle_path: Vec<[u8; 32]>,
+    signer: Option<PrivateKeySigner>,
 ) -> Result<OrderCommitment, RpcError> {
     match order_commitment_type {
         OrderCommitmentType::TransactionHash => Ok(OrderCommitment::Single(
@@ -223,7 +227,10 @@ pub async fn issue_order_commitment(
             )),
         )),
         OrderCommitmentType::Sign => {
-            let signer = context.get_signer(platform).await?;
+            let signer = match signer {
+                Some(signer) => signer,
+                None => context.get_signer(platform).await?,
+            };
             let order_commitment_data = OrderCommitmentData {
                 rollup_id,
                 epoch,
