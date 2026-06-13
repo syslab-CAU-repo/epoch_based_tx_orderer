@@ -249,7 +249,8 @@ impl RpcParameter<AppState> for SendRawTransaction {
 
             let epoch_metadata_start_ms = now_epoch_ms(); // test code
 
-            let mut mut_epoch_metadata = EpochMetadata::get_mut(&self.rollup_id)?;
+            let atomic_epoch_metadata =
+                context.atomic_epoch_metadata().get_or_init(&self.rollup_id);
 
             let epoch_metadata_end_ms = now_epoch_ms(); // test code
 
@@ -268,10 +269,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
             }
             */
 
-            let transaction_order = mut_epoch_metadata.transaction_order(epoch);
+            // read + increment 가 단일 atomic 연산(fetch_add)이라, 멀티스레드에서
+            // 두 호출이 같은 transaction_order 를 받는 race 가 없다.
+            let transaction_order = atomic_epoch_metadata.issue_transaction_order(epoch);
             let transaction_hash = self.raw_transaction.raw_transaction_hash();
-
-            mut_epoch_metadata.increment_transaction_order(epoch);
 
             let is_from_client = self.sender_address.is_none();
 
@@ -300,12 +301,10 @@ impl RpcParameter<AppState> for SendRawTransaction {
                         Error::GeneralError("Sender address not found in cluster".into())
                     })?;
 
-                mut_epoch_metadata.increment_received_transaction_count(epoch, node_index);
+                atomic_epoch_metadata.increment_received_transaction_count(epoch, node_index);
             }
             
             let epoch_update_commit_ms = now_epoch_ms();
-            
-            mut_epoch_metadata.update()?;
 
             let tx_put_start_ms = now_epoch_ms();
 

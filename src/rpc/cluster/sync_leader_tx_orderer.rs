@@ -23,8 +23,6 @@ pub struct SyncLeaderTxOrderer {
 
     pub old_epoch: u64,
     pub new_epoch: u64,
-
-    pub epoch_metadata: EpochMetadata,
 }
 
 impl RpcParameter<AppState> for SyncLeaderTxOrderer {

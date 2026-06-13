@@ -303,8 +303,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
         mut_cluster_metadata.update()?;
         mut_rollup_metadata.update()?;
 
-        let epoch_metadata = EpochMetadata::get(&rollup_id)?;
-
         sync_leader_tx_orderer(
             context.clone(),
             cluster,
@@ -316,7 +314,6 @@ impl RpcParameter<AppState> for GetRawTransactionList {
             provided_transaction_order,
             old_epoch,
             new_epoch,
-            epoch_metadata,
         )
         .await;
 
@@ -424,7 +421,6 @@ pub async fn sync_leader_tx_orderer(
     provided_transaction_order: i64,
     old_epoch: u64, 
     new_epoch: u64,
-    epoch_metadata: EpochMetadata,
 ) {
     let mut other_cluster_rpc_url_list = cluster.get_other_cluster_rpc_url_list();
     if other_cluster_rpc_url_list.is_empty() {
@@ -455,7 +451,6 @@ pub async fn sync_leader_tx_orderer(
             provided_transaction_order: provided_transaction_order,
             old_epoch:                  old_epoch, 
             new_epoch:                  new_epoch,
-            epoch_metadata:             epoch_metadata,
         };
 
         let current_leader_tx_orderer_address = leader_change_message.current_leader_tx_orderer_address.clone();
@@ -593,8 +588,7 @@ async fn create_batches_from_epoch(
     next_leader_tx_orderer_address: Address,
 ) -> Result<(), Error> {
     let epoch_metadata = EpochMetadata::get(rollup_id)?;
-
-    // tracing::info!("    [create_batches_from_epoch]: epoch_metadata.epoch_transaction_orders: {:?}", epoch_metadata.epoch_transaction_orders); // test code
+    let atomic_epoch_metadata = context.atomic_epoch_metadata().get_or_init(rollup_id);
 
     let last_batched_epoch = epoch_metadata.last_batched_epoch;
 
@@ -616,7 +610,7 @@ async fn create_batches_from_epoch(
     // 존재하지 않는 epoch가 나오면 for 문을 종료(해당 epoch와 그 이후의 epoch는 이번 get_raw_transaction_list에서 처리하지 않음)
     for epoch in &epochs_to_process {
         let mut ok_to_process = true;
-        for epoch_tx_order in 0..epoch_metadata.transaction_order(*epoch) {
+        for epoch_tx_order in 0..atomic_epoch_metadata.transaction_order(*epoch) {
             let (_raw_epoch_transaction, _is_direct_sent) =
                 match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
                     Ok(data) => data,
@@ -646,7 +640,7 @@ async fn create_batches_from_epoch(
     }
 
     for epoch in &epochs_ok_to_process {
-        for epoch_tx_order in 0..mut_epoch_metadata.transaction_order(*epoch) {
+        for epoch_tx_order in 0..atomic_epoch_metadata.transaction_order(*epoch) {
             let (raw_epoch_transaction, _is_direct_sent) =
                 match RawEpochTransactionModel::get(rollup_id, *epoch, epoch_tx_order) {
                     Ok(data) => data,
@@ -720,6 +714,9 @@ async fn create_batches_from_epoch(
 
     mut_epoch_metadata.update()?;
     mut_rollup_metadata.update()?;
+
+    // 배치 처리가 끝난 epoch 들의 in-memory 카운터를 회수한다(메모리 누수 방지).
+    atomic_epoch_metadata.retain_epochs_after(last_batched_epoch_after_update);
 
     sync_epoch_metadata(
         context.clone(),

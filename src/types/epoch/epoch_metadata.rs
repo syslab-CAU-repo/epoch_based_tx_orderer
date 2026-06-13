@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::BTreeSet;
 
 use radius_sdk::kvstore::Model;
 use serde::{Deserialize, Serialize};
@@ -31,78 +31,23 @@ impl CanProvideEpochInfo {
     }
 }
 
+/// epoch 관련 영속 메타데이터.
+///
+/// 과거에는 `epoch_transaction_orders` 와 `received_transaction_count_per_node` 도
+/// 이 구조체에 함께 담겨 RocksDB 락 아래에서 갱신됐으나, `send_raw_transaction`
+/// 핫 패스의 병목을 제거하기 위해 두 카운터는 in-memory atomic 구조체
+/// ([`AtomicEpochMetadata`]) 로 분리됐다. 영속성이 필요한 `last_batched_epoch` 만
+/// 여기에 남는다.
 #[derive(Clone, Debug, Deserialize, Serialize, Model)]
 #[kvstore(key(rollup_id: &RollupId))]
 pub struct EpochMetadata {
-    pub epoch_transaction_orders: BTreeMap<u64, u64>,
     pub last_batched_epoch: Option<u64>,
-
-    // epoch별 각 노드가 전송한 트랜잭션 수
-    // HashMap<epoch, Vec<sent_transaction_count>> 형태
-    pub received_transaction_count_per_node: BTreeMap<u64, Vec<u64>>,
 }
 
 impl Default for EpochMetadata {
     fn default() -> Self {
         Self {
-            epoch_transaction_orders: BTreeMap::new(),
             last_batched_epoch: None,
-            received_transaction_count_per_node: BTreeMap::new(),
         }
-    }
-}
-
-impl EpochMetadata {
-    pub fn current_epoch(&self) -> u64 {
-        self.epoch_transaction_orders
-            .keys()
-            .last()
-            .copied()
-            .unwrap_or(0)
-    }
-
-    pub fn transaction_order(&self, epoch: u64) -> u64 {
-        self.epoch_transaction_orders
-            .get(&epoch)
-            .copied()
-            .unwrap_or(0)
-    }
-
-    pub fn increment_transaction_order(&mut self, epoch: u64) -> u64 {
-        let order = self.epoch_transaction_orders.entry(epoch).or_insert(0);
-        let current = *order;
-        *order += 1;
-        current
-    }
-
-    pub fn increment_received_transaction_count(&mut self, epoch: u64, node_index: usize) {
-        let counts = self
-            .received_transaction_count_per_node
-            .entry(epoch)
-            .or_insert_with(Vec::new);
-
-        if counts.len() <= node_index {
-            counts.resize(node_index + 1, 0);
-        }
-
-        counts[node_index] = counts[node_index].saturating_add(1);
-    }
-
-    pub fn update_received_transaction_count(
-        &mut self,
-        epoch: u64,
-        node_index: usize,
-        received_transaction_count: u64,
-    ) {
-        let counts = self
-            .received_transaction_count_per_node
-            .entry(epoch)
-            .or_insert_with(Vec::new);
-
-        if counts.len() <= node_index {
-            counts.resize(node_index + 1, 0);
-        }
-
-        counts[node_index] = received_transaction_count;
     }
 }

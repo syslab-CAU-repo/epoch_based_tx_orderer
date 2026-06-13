@@ -118,23 +118,10 @@ impl RpcParameter<AppState> for SendEndSignal {
             Error::GeneralError("Sender address not found in cluster".into())
         })?;
 
-        let epoch_metadata = EpochMetadata::get(&self.rollup_id).map_err(|e| {
-            tracing::error!(
-                "Failed to retrieve epoch metadata for rollup_id: {:?}, epoch: {}, error: {:?}",
-                self.rollup_id,
-                self.epoch,
-                e
-            );
-            e
-        })?;
+        let atomic_epoch_metadata = context.atomic_epoch_metadata().get_or_init(&self.rollup_id);
 
         let sent = self.epoch_sent_transaction_count;
-        let received = epoch_metadata
-            .received_transaction_count_per_node
-            .get(&self.epoch)
-            .and_then(|v| v.get(node_index))
-            .copied()
-            .unwrap_or(0);
+        let received = atomic_epoch_metadata.received_transaction_count(self.epoch, node_index);
 
         if received > sent {
             tracing::error!(
@@ -181,31 +168,11 @@ impl RpcParameter<AppState> for SendEndSignal {
                 loop {
                     attempts += 1;
 
-                    let epoch_metadata = match EpochMetadata::get(&rollup_id) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to retrieve epoch metadata while waiting to set end_signal bit. rollup_id={:?} epoch={} node_index={} error={:?}",
-                                rollup_id,
-                                epoch,
-                                node_index,
-                                e
-                            );
-                            if attempts >= max_attempts {
-                                return;
-                            }
-                            sleep(delay).await;
-                            delay = std::cmp::min(delay * 2, max_delay);
-                            continue;
-                        }
-                    };
+                    let atomic_epoch_metadata =
+                        context.atomic_epoch_metadata().get_or_init(&rollup_id);
 
-                    let received = epoch_metadata
-                        .received_transaction_count_per_node
-                        .get(&epoch)
-                        .and_then(|v| v.get(node_index))
-                        .copied()
-                        .unwrap_or(0);
+                    let received =
+                        atomic_epoch_metadata.received_transaction_count(epoch, node_index);
 
                     if received > sent {
                         tracing::error!(
@@ -286,7 +253,7 @@ impl RpcParameter<AppState> for SendEndSignal {
                     }
 
                     if all_nodes_sent_signal {   
-                        let transaction_order = epoch_metadata.transaction_order(epoch);
+                        let transaction_order = atomic_epoch_metadata.transaction_order(epoch);
 
                         sync_can_provide_epoch_info(
                             context,
@@ -353,7 +320,7 @@ impl RpcParameter<AppState> for SendEndSignal {
         })?;
 
         if all_nodes_sent_signal {
-            let transaction_order = epoch_metadata.transaction_order(self.epoch);
+            let transaction_order = atomic_epoch_metadata.transaction_order(self.epoch);
             sync_can_provide_epoch_info(
                 context.clone(),
                 cluster.clone(),

@@ -32,6 +32,7 @@ struct AppStateInner {
     rpc_client: Arc<RpcClient>,
     merkle_tree_manager: MerkleTreeManager,
     shared_channel_infos: SharedChannelInfos,
+    atomic_epoch_metadata: AtomicEpochMetadataManager,
 }
 
 impl Clone for AppState {
@@ -71,6 +72,7 @@ impl AppState {
             rpc_client,
             merkle_tree_manager,
             shared_channel_infos,
+            atomic_epoch_metadata: AtomicEpochMetadataManager::new(),
         };
 
         Self {
@@ -104,6 +106,10 @@ impl AppState {
 
     pub fn merkle_tree_manager(&self) -> &MerkleTreeManager {
         &self.inner.merkle_tree_manager
+    }
+
+    pub fn atomic_epoch_metadata(&self) -> &AtomicEpochMetadataManager {
+        &self.inner.atomic_epoch_metadata
     }
 
     pub fn shared_channel_infos(&self) -> &SharedChannelInfos {
