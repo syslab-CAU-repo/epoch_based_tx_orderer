@@ -123,7 +123,6 @@ async fn start_tx_orderer(config_option: &mut ConfigOption) -> Result<(), Error>
         decryptor,
         CachedKvStore::default(),
         CachedKvStore::default(),
-        CachedKvStore::default(),
         skde_params,
         profiler,
         rpc_client,

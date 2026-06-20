@@ -1,5 +1,6 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::BTreeMap, sync::Arc};
 
+use arc_swap::ArcSwap;
 use radius_sdk::{
     json_rpc::client::RpcClient,
     kvstore::{CachedKvStore, CachedKvStoreError},
@@ -26,7 +27,10 @@ struct AppStateInner {
     decryptor: Arc<Decryptor>,
     liveness_service_manager_clients: CachedKvStore,
     validation_service_manager_clients: CachedKvStore,
-    signers: CachedKvStore,
+    // Signers are populated once at boot and read-only afterwards, so they are
+    // stored in a lock-free, read-mostly structure to avoid contention on the
+    // RPC hot path.
+    signers: ArcSwap<BTreeMap<Platform, PrivateKeySigner>>,
     skde_params: SkdeParams,
     profiler: Option<Profiler>,
     rpc_client: Arc<RpcClient>,
@@ -50,7 +54,6 @@ impl AppState {
         seeder_client: SeederClient,
         reward_manager_client: RewardManagerClient,
         decryptor: Arc<Decryptor>,
-        signers: CachedKvStore,
         liveness_service_manager_clients: CachedKvStore,
         validation_service_manager_clients: CachedKvStore,
         skde_params: SkdeParams,
@@ -64,7 +67,7 @@ impl AppState {
             seeder_client,
             reward_manager_client,
             decryptor,
-            signers,
+            signers: ArcSwap::from_pointee(BTreeMap::new()),
             liveness_service_manager_clients,
             validation_service_manager_clients,
             skde_params,
@@ -194,17 +197,27 @@ impl AppState {
         platform: Platform,
         signer: PrivateKeySigner,
     ) -> Result<(), CachedKvStoreError> {
-        let key = &(platform);
+        // RCU update: clone the current map, insert, then publish the new map
+        // atomically. This only happens at boot, so the clone cost is irrelevant.
+        let mut new_signers = BTreeMap::clone(&self.inner.signers.load());
+        new_signers.insert(platform, signer);
+        self.inner.signers.store(Arc::new(new_signers));
 
-        self.inner.signers.put(key, signer).await
+        Ok(())
     }
 
     pub async fn get_signer(
         &self,
         platform: Platform,
     ) -> Result<PrivateKeySigner, CachedKvStoreError> {
-        let key = &(platform);
-
-        self.inner.signers.get(key).await
+        // Hot path: lock-free load + a cheap `PrivateKeySigner` clone (Arc bump).
+        self.inner
+            .signers
+            .load()
+            .get(&platform)
+            .cloned()
+            .ok_or(CachedKvStoreError::KeyError(std::any::type_name::<
+                PrivateKeySigner,
+            >()))
     }
 }
